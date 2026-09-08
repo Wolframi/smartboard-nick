@@ -1,0 +1,24 @@
+# SmartBoard — Docker bridge + порт 3000.
+# Запуск: docker compose up -d --build
+# Клиенты: http://IP:3000
+services:
+  smartboard:
+    build: .
+    image: smartboard:latest
+    container_name: smartboard
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - SMARTBOARD_DATA_DIR=/app/data
+      - SMARTBOARD_PUBLIC_URL=${SMARTBOARD_PUBLIC_URL}
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+    volumes:
+      - ./data/SmartBoardData:/app/data/SmartBoardData
+      - ./data/User.csv:/app/data/User.csv
+    ports:
+      - "3000:3000"
+      - "39452:39452/udp"
+    # Время на gracefulShutdown в Node (UDP STOP в LAN не всегда проходит из bridge-сети Docker).
+    stop_grace_period: 20s
+

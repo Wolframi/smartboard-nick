@@ -1,0 +1,3457 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>SmartBoard</title>
+    <script src="/libs/Sortable.min.js"></script>
+    <link href="/libs/quill.snow.css" rel="stylesheet">
+    <script src="/libs/quill.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <script src="/avatars.js"></script>
+    <style>
+        .empty-message { padding: 40px; color: #6b778c; font-size: 18px; text-align: center; width: 100%; margin-top: 50px; }
+        .board-error { padding: 20px; color: #c00; font-family: monospace; font-size: 14px; white-space: pre-wrap; word-break: break-all; }
+        .btn-retry-board { margin-top: 12px; background: #28a745; color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; }
+        .btn-retry-board:hover { background: #218838; }
+        .date-overdue { color: #d93025 !important; font-weight: bold; }
+        .date-urgent { color: #e37400 !important; font-weight: bold; }
+        .card-gallery { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+        #quill-editor { min-height: 120px; }
+        .board-switch-btn { background: rgba(255,255,255,0.22); color: #fff; border: 1px solid rgba(255,255,255,0.35); border-radius: 6px; padding: 0 12px; height: 34px; cursor: pointer; font-size: 13px; line-height: 32px; box-sizing: border-box; transition: background 0.22s cubic-bezier(0.22, 1, 0.36, 1), transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+        .board-switch-btn:hover { background: rgba(255,255,255,0.32); transform: translateY(-1px); border-color: rgba(255,255,255,0.5); }
+        .board-switch-btn:active { transform: translateY(0); }
+        .column-header-title-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+        .column-title-text { overflow: hidden; text-overflow: ellipsis; }
+    </style>
+</head>
+<body>
+    <div id="boards-screen" class="boards-screen" style="display:none;">
+        <div id="boards-screen-main-inner" class="boards-screen-inner">
+            <div class="boards-screen-header">
+                <div>
+                    <h1 class="boards-screen-title">Доски</h1>
+                    <p class="boards-screen-subtitle">Выберите существующую доску или создайте новую.</p>
+                    <p id="boards-registered-line" class="boards-registered-line" style="display:none;">Вы вошли как <span id="boards-user-badge-wrap" class="user-avatar-wrap"></span></p>
+                </div>
+                <button type="button" id="btn-create-board" class="boards-create-btn">Создать доску</button>
+            </div>
+            <div id="boards-list" class="boards-grid"></div>
+        </div>
+    </div>
+
+    <!-- Полноэкранное затемнение; кнопка «Зарегистрироваться» на одной линии с бывшей «Создать доску» (boards-create-btn) -->
+    <div id="boards-reg-fullscreen" class="boards-reg-fs" style="display:none;">
+        <div class="boards-reg-fs-inner">
+            <div class="boards-reg-fs-header">
+                <div>
+                    <h1 class="boards-screen-title">Доски</h1>
+                    <p class="boards-screen-subtitle">Укажите никнейм</p>
+                </div>
+                <div class="boards-reg-fs-actions">
+                    <input type="text" id="input-fio-boards" class="header-fio-input" placeholder="Никнейм" maxlength="32" autocomplete="off">
+                    <button type="button" id="btn-fio-boards" class="boards-create-btn">Зарегистрироваться</button>
+                </div>
+            </div>
+            <div class="boards-reg-fs-dim-rest" aria-hidden="true"></div>
+        </div>
+    </div>
+
+    <div id="createBoardModal" class="modal-overlay modal-overlay-global" style="display:none;">
+        <div class="modal-card-window modal-small-window" onclick="event.stopPropagation()">
+            <div class="modal-header modal-header-compact">
+                <h3 class="modal-small-title">Создать доску</h3>
+                <span class="close-edit-btn" onclick="closeCreateBoardModal()">×</span>
+            </div>
+            <div class="modal-body create-board-form">
+                <div class="modal-form-row">
+                    <label for="create-board-name-input" class="modal-form-label">Название</label>
+                    <input type="text" id="create-board-name-input" class="modal-form-input" placeholder="Название доски" maxlength="120" autocomplete="off">
+                </div>
+                <label class="modal-form-checkbox-row" for="create-board-private-checkbox">
+                    <input type="checkbox" id="create-board-private-checkbox">
+                    <span class="modal-form-checkbox-text">
+                        <span class="modal-form-checkbox-title">Приватная доска</span>
+                        <span class="modal-form-checkbox-hint">Видна только вам и выбранным участникам. Следующим шагом выберите участников.</span>
+                    </span>
+                </label>
+                <p id="create-board-error" class="modal-form-error" style="display:none;"></p>
+            </div>
+            <div class="modal-actions modal-actions-end">
+                <button type="button" class="btn-delete-edit btn-modal-cancel" onclick="closeCreateBoardModal()">Отмена</button>
+                <button type="button" id="btn-create-board-submit" class="btn-save-edit" onclick="submitCreateBoardModal()">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="boardMembersModal" class="modal-overlay modal-overlay-global" style="display:none;">
+        <div class="modal-card-window modal-board-members-window" onclick="event.stopPropagation()">
+            <div class="modal-header modal-header-compact">
+                <h3 class="modal-small-title">Участники доски</h3>
+                <span class="close-edit-btn" onclick="closeBoardMembersModal()">×</span>
+            </div>
+            <div class="modal-body">
+                <p id="board-members-modal-subtitle" class="board-members-subtitle"></p>
+                <div class="board-members-picker">
+                    <input type="search" id="board-members-filter" class="modal-form-input board-members-filter" placeholder="Поиск по имени..." autocomplete="off">
+                    <div id="board-members-picker-list" class="board-members-picker-list"></div>
+                </div>
+            </div>
+            <div class="modal-actions modal-actions-end">
+                <button type="button" class="btn-delete-edit btn-modal-cancel" onclick="closeBoardMembersModal()">Отмена</button>
+                <button type="button" class="btn-save-edit" onclick="saveBoardMembersModal().catch(e => alert(e.message || 'Ошибка'))">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="appConfirmModal" class="modal-overlay modal-overlay-global" style="display:none;" onclick="if(event.target===this) resolveAppConfirm('cancel')">
+        <div class="modal-card-window modal-small-window app-confirm-window" onclick="event.stopPropagation()">
+            <div class="modal-header modal-header-compact">
+                <h3 id="app-confirm-title" class="modal-small-title">Подтверждение</h3>
+                <span class="close-edit-btn" onclick="resolveAppConfirm('cancel')" title="Закрыть">×</span>
+            </div>
+            <div class="modal-body">
+                <p id="app-confirm-message" class="app-confirm-message"></p>
+            </div>
+            <div class="modal-actions modal-actions-end app-confirm-actions" id="app-confirm-actions"></div>
+        </div>
+    </div>
+
+    <div id="board-app" style="display:none;">
+    <div class="header">
+        <div class="header-main">
+            <div class="header-brand">
+                <h1 id="board-title">SmartBoard</h1>
+                <div class="column-menu-wrapper header-board-menu" id="header-board-menu-wrap" style="display:none;">
+                    <button type="button" class="btn-three-dots" onclick="toggleColumnMenu(event)" title="Меню доски">•••</button>
+                    <div class="column-dropdown" id="header-board-menu-dropdown"></div>
+                </div>
+            </div>
+            <div class="board-filters" id="board-filters">
+                <div class="board-filter-wrap" id="column-filter-wrap">
+                    <button type="button" id="btn-column-filter" class="board-column-filter-btn" title="Фильтр по колонкам">
+                        Колонки<span id="column-filter-badge" class="column-filter-badge" hidden></span>
+                    </button>
+                    <div id="column-filter-dropdown" class="column-filter-dropdown" onclick="event.stopPropagation()">
+                        <div class="column-filter-actions people-filter-actions">
+                            <button type="button" id="column-filter-all" class="column-filter-action-btn">Все</button>
+                            <input type="search" id="column-filter-search" class="people-filter-search" placeholder="Поиск…" autocomplete="off">
+                        </div>
+                        <div id="column-filter-list" class="column-filter-list"></div>
+                        <div id="column-filter-empty" class="column-filter-empty" style="display:none;">Нет колонок</div>
+                    </div>
+                </div>
+                <div class="board-filter-wrap" id="people-filter-wrap">
+                    <button type="button" id="btn-people-filter" class="board-column-filter-btn" title="Фильтр по участникам">
+                        Участники<span id="people-filter-badge" class="column-filter-badge" hidden></span>
+                    </button>
+                    <div id="people-filter-dropdown" class="column-filter-dropdown" onclick="event.stopPropagation()">
+                        <div class="column-filter-actions people-filter-actions">
+                            <button type="button" id="people-filter-me" class="column-filter-action-btn">Я</button>
+                            <button type="button" id="people-filter-all" class="column-filter-action-btn">Все</button>
+                            <input type="search" id="people-filter-search" class="people-filter-search" placeholder="Поиск…" autocomplete="off">
+                        </div>
+                        <div id="people-filter-list" class="column-filter-list"></div>
+                        <div id="people-filter-empty" class="column-filter-empty" style="display:none;">Нет участников</div>
+                    </div>
+                </div>
+                <div class="board-filter-wrap" id="done-filter-wrap">
+                    <button type="button" id="btn-done-filter" class="board-column-filter-btn" title="Фильтр по статусу">
+                        <span id="done-filter-label">Статус</span>
+                    </button>
+                    <div id="done-filter-dropdown" class="column-filter-dropdown done-filter-dropdown" onclick="event.stopPropagation()">
+                        <label class="column-filter-row done-filter-option">
+                            <input type="radio" name="done-filter" class="done-filter-radio" value="all">
+                            <span class="column-filter-row-name">Все карточки</span>
+                        </label>
+                        <label class="column-filter-row done-filter-option">
+                            <input type="radio" name="done-filter" class="done-filter-radio" value="open">
+                            <span class="column-filter-row-name">Не выполнено</span>
+                        </label>
+                        <label class="column-filter-row done-filter-option">
+                            <input type="radio" name="done-filter" class="done-filter-radio" value="done">
+                            <span class="column-filter-row-name">Выполнено</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="board-filter-chips" id="board-filter-chips" aria-label="Активные фильтры"></div>
+            </div>
+            <button type="button" id="btn-board-switch" class="board-switch-btn">Доски</button>
+        </div>
+        <div class="header-user" id="header-user-block">
+            <div id="user-registered-view" style="display:none;">
+                <span id="header-user-avatar-wrap" class="user-avatar-wrap"></span>
+            </div>
+            <div id="user-registration-view" style="display:none;">
+                <input type="text" id="input-fio-header" class="header-fio-input" placeholder="Введите никнейм" maxlength="32">
+                <button type="button" id="btn-fio-header" class="btn-fio-header">Зарегистрироваться</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="board-overlay" class="board-overlay" style="display:none;"></div>
+    
+    <div class="board" id="board">Загрузка...</div>
+
+    <div id="imageModal" class="modal" onclick="closeModal()">
+        <span class="close-modal">&times;</span>
+        <img class="modal-content" id="modalImg">
+        <div id="caption"></div>
+    </div>
+
+    <div id="cardEditModal" class="modal-overlay" style="display:none;">
+        <div class="modal-card-window">
+            <div class="modal-header">
+                <input type="text" id="edit-card-title" class="title-input" value="Название задачи">
+                <span class="close-edit-btn" onclick="closeEditModal()">×</span>
+            </div>
+            
+            <div class="modal-meta">
+                В колонке: <span id="edit-card-column" class="column-badge">...</span>
+            </div>
+
+            <div class="modal-dates-row">
+                <label class="checkbox-wrapper">
+                    <input type="checkbox" id="edit-card-done">
+                    <span class="checkmark"></span>
+                    Выполнено
+                </label>
+                <div class="date-group">
+                    <label>Срок:</label>
+                    <input type="date" id="edit-card-date">
+                </div>
+            </div>
+
+            <div class="modal-participants-section">
+                <h3>Участники</h3>
+                <div id="modal-participants-list" class="modal-participants-list"></div>
+                <div class="modal-participants-add">
+                    <button type="button" class="btn-add-participant" id="btn-add-participant">+ Добавить участников</button>
+                    <div id="modal-participant-picker" class="modal-participant-picker" style="display:none;">
+                        <input type="search" id="modal-participant-filter" class="modal-participant-filter" placeholder="Поиск по имени..." autocomplete="off">
+                        <div id="modal-participant-picker-list" class="modal-participant-picker-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-photos-section">
+                <h3>Вложения</h3>
+                <div id="modal-photo-dropzone" class="modal-photo-dropzone" title="Перетащите фото сюда или нажмите для выбора">
+                    <input type="file" id="modal-photo-file-input" accept="image/*" multiple style="display:none">
+                    <img src="/ico/camera.svg" class="dropzone-icon-img" alt="" aria-hidden="true">
+                    <span class="dropzone-text">Перетащите фото сюда или нажмите для выбора</span>
+                </div>
+                <div id="modal-photos-list" class="modal-photos-list"></div>
+            </div>
+
+            <div class="modal-description-section">
+                <h3>Описание</h3>
+                <div id="quill-editor"></div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-save-edit" onclick="saveCardEdit()">Сохранить изменения</button>
+                <button class="btn-delete-edit" onclick="deleteOpenedCard()">Удалить карточку</button>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <script>
+        // API = тот хост, с которого открыта страница (IP определяется сам)
+        const API_URL = (window.location.origin || ('http://' + window.location.hostname + (window.location.port ? ':' + window.location.port : ''))) + '/api';
+        const BASE_URL = API_URL.replace(/\/api\/?$/, '');
+        const WS_URL = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host;
+        let currentBoardId = '';
+        let currentBoardName = '';
+        let availableBoards = [];
+
+        function getBoardApiUrl(path) {
+            const url = new URL(API_URL + path, window.location.origin);
+            if (currentBoardId) url.searchParams.set('boardId', currentBoardId);
+            return url.toString();
+        }
+        function withBoardId(payload) {
+            return currentBoardId ? { ...(payload || {}), boardId: currentBoardId } : { ...(payload || {}) };
+        }
+        function updateBoardUrl(boardId) {
+            const url = new URL(window.location.href);
+            if (boardId) url.searchParams.set('board', boardId);
+            else url.searchParams.delete('board');
+            history.replaceState({}, '', url.toString());
+        }
+        function setCurrentBoard(board) {
+            currentBoardId = board?.id || '';
+            currentBoardName = board?.name || '';
+            updateBoardUrl(currentBoardId);
+            const titleEl = document.getElementById('board-title');
+            if (titleEl) titleEl.textContent = currentBoardName ? `SmartBoard: ${currentBoardName}` : 'SmartBoard';
+            updateHeaderBoardMenu();
+            boardFiltersHydrated = false;
+            loadBoardFiltersFromStorage();
+            updatePeopleFilterBadge();
+            updateDoneFilterUi();
+            renderBoardFilterChips();
+            loadCardUserList(currentBoardId).catch(() => {});
+        }
+        function getCurrentBoardMeta() {
+            return availableBoards.find(b => b.id === currentBoardId) || null;
+        }
+        // PNG-иконки UI (папка /ico на сервере). Имена ASCII — без проблем с кодировкой в mount/Docker/URL.
+        const ICO = {
+            members: 'members.svg',
+            lock: 'lock.svg',
+            globe: 'globe.svg',
+            trash: 'trash.svg',
+            edit: 'edit.svg',
+            camera: 'camera.svg',
+            sort: 'SortAlphabet.svg'
+        };
+        function uiIcon(file, cls) {
+            return `<img src="/ico/${file}" class="ui-icon${cls ? ' ' + cls : ''}" alt="" aria-hidden="true">`;
+        }
+        function isBoardOwner(board) {
+            const me = getCurrentUser();
+            const owner = board && board.owner ? String(board.owner).trim() : '';
+            if (!owner) return false;
+            return !!(me && me === owner);
+        }
+        function canManageBoard(board) {
+            return isBoardOwner(board);
+        }
+        function canManageBoardMembers(board) {
+            return !!(board && board.visibility === 'private' && isBoardOwner(board));
+        }
+        window.__allUserListNames = [];
+        window.__cardUserListNames = [];
+        async function loadAllUserList() {
+            try {
+                const r = await fetch(`${API_URL}/user-list`);
+                const d = await r.json().catch(() => ({}));
+                window.__allUserListNames = d.names || [];
+            } catch (e) {}
+            return window.__allUserListNames;
+        }
+        async function loadCardUserList(boardId) {
+            const id = boardId || currentBoardId;
+            if (!id) {
+                window.__cardUserListNames = (window.__allUserListNames || []).slice();
+                return window.__cardUserListNames;
+            }
+            try {
+                const r = await fetch(`${API_URL}/user-list?boardId=${encodeURIComponent(id)}`);
+                const d = await r.json().catch(() => ({}));
+                window.__cardUserListNames = d.names || [];
+            } catch (e) {
+                window.__cardUserListNames = [];
+            }
+            return window.__cardUserListNames;
+        }
+        // Списки пользователей меняются редко — в фоновом poll/refresh не дёргаем их каждый раз.
+        // При открытии модалок (openEditModal и т.п.) списки запрашиваются явно, поэтому остаются свежими.
+        let _userListsBoardId = null, _userListsTs = 0;
+        const USER_LISTS_TTL_MS = 60000;
+        async function ensureUserLists(boardId, force) {
+            const now = Date.now();
+            if (!force && boardId === _userListsBoardId && (now - _userListsTs) < USER_LISTS_TTL_MS) return;
+            await Promise.all([loadAllUserList(), loadCardUserList(boardId)]).catch(() => {});
+            _userListsBoardId = boardId;
+            _userListsTs = now;
+        }
+        function getCardPickerNames() {
+            if (window.__cardUserListNames && window.__cardUserListNames.length) return window.__cardUserListNames;
+            return window.__allUserListNames || [];
+        }
+        function buildParticipantSelectOptions(excluded) {
+            const skip = new Set((excluded || []).filter(Boolean));
+            return '<option value="">— Выберите —</option>' + getCardPickerNames()
+                .filter(n => !skip.has(n))
+                .map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`)
+                .join('');
+        }
+        function renderModalParticipantPicker(excluded) {
+            const list = document.getElementById('modal-participant-picker-list');
+            const filterEl = document.getElementById('modal-participant-filter');
+            if (!list) return;
+            const q = (filterEl && filterEl.value || '').trim().toLowerCase();
+            const skip = new Set((excluded || []).filter(Boolean));
+            const names = getCardPickerNames().filter((n) => !skip.has(n) && (!q || n.toLowerCase().includes(q)));
+            if (!names.length) {
+                list.innerHTML = '<div class="modal-participant-picker-empty">Никого не найдено</div>';
+                return;
+            }
+            list.innerHTML = names.map((n) => {
+                const avatar = renderUserAvatarHtml(n, 'sm');
+                const label = escapeHtml(formatCardUserLabel(n));
+                const full = escapeHtml(n);
+                return `<button type="button" class="modal-participant-picker-row" data-participant-name="${full}" title="${full}">${avatar}<span class="modal-participant-picker-name">${label}</span></button>`;
+            }).join('');
+        }
+        function toggleModalParticipantPicker(forceOpen) {
+            const picker = document.getElementById('modal-participant-picker');
+            if (!picker) return;
+            const open = forceOpen !== undefined ? forceOpen : picker.style.display === 'none';
+            picker.style.display = open ? 'block' : 'none';
+            if (open) {
+                const filterEl = document.getElementById('modal-participant-filter');
+                if (filterEl) filterEl.value = '';
+                renderModalParticipantPicker(currentEditCard ? currentEditCard.participants : []);
+                if (filterEl) filterEl.focus();
+            }
+        }
+        function addParticipantFromPicker(name) {
+            const n = String(name || '').trim();
+            if (!n || !currentEditCard) return;
+            if (!(currentEditCard.participants || []).includes(n)) {
+                currentEditCard.participants.push(n);
+                renderModalParticipants();
+                renderModalParticipantPicker(currentEditCard.participants);
+            }
+        }
+        let modalParticipantPickerBound = false;
+        function ensureModalParticipantPickerBound() {
+            if (modalParticipantPickerBound) return;
+            modalParticipantPickerBound = true;
+            const filterEl = document.getElementById('modal-participant-filter');
+            const list = document.getElementById('modal-participant-picker-list');
+            const btn = document.getElementById('btn-add-participant');
+            if (filterEl) {
+                filterEl.addEventListener('input', () => {
+                    renderModalParticipantPicker(currentEditCard ? currentEditCard.participants : []);
+                });
+            }
+            if (list) {
+                list.addEventListener('click', (e) => {
+                    const row = e.target.closest('.modal-participant-picker-row');
+                    if (!row) return;
+                    addParticipantFromPicker(row.getAttribute('data-participant-name') || '');
+                });
+            }
+            if (btn) {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    toggleModalParticipantPicker();
+                });
+            }
+            document.addEventListener('click', (e) => {
+                const picker = document.getElementById('modal-participant-picker');
+                const addBtn = document.getElementById('btn-add-participant');
+                if (!picker || picker.style.display === 'none') return;
+                if (picker.contains(e.target) || (addBtn && addBtn.contains(e.target))) return;
+                picker.style.display = 'none';
+            });
+        }
+        function updateHeaderBoardMenu() {
+            const wrap = document.getElementById('header-board-menu-wrap');
+            const dropdown = document.getElementById('header-board-menu-dropdown');
+            const board = getCurrentBoardMeta();
+            if (!wrap || !dropdown) return;
+            if (!board || !canManageBoard(board)) {
+                wrap.style.display = 'none';
+                dropdown.innerHTML = '';
+                return;
+            }
+            wrap.style.display = 'inline-block';
+            let html = '';
+            if (canManageBoardMembers(board)) {
+                html += `<div class="menu-item" onclick="openBoardMembersModalFromHeader(event)">${uiIcon(ICO.members, 'menu-icon')}Участники доски</div>`;
+            }
+            if (board.visibility === 'private') {
+                html += `<div class="menu-item" onclick="setBoardVisibilityFromMenu(event, '${escapeHtml(board.id)}', false)">${uiIcon(ICO.globe, 'menu-icon')}Сделать общей</div>`;
+            } else {
+                html += `<div class="menu-item" onclick="setBoardVisibilityFromMenu(event, '${escapeHtml(board.id)}', true)">${uiIcon(ICO.lock, 'menu-icon')}Сделать приватной</div>`;
+            }
+            html += `<div class="menu-item delete-item" onclick="deleteBoardFromMenu(event, this)" data-board-id="${escapeHtml(board.id)}">${uiIcon(ICO.trash, 'menu-icon')}Удалить доску</div>`;
+            dropdown.innerHTML = html;
+        }
+        function renderUserAvatarHtml(name, size) {
+            return typeof renderUserAvatar === 'function' ? renderUserAvatar(name, size || 'sm') : '';
+        }
+        function renderUserAvatarWithNameHtml(name, size) {
+            return typeof renderUserAvatarWithName === 'function'
+                ? renderUserAvatarWithName(name, size || 'sm', true)
+                : escapeHtml(name || '');
+        }
+        function formatCardUserLabel(name) {
+            return typeof formatCardDisplayName === 'function'
+                ? formatCardDisplayName(name)
+                : String(name || '').trim();
+        }
+        function pluralRu(n, one, few, many) {
+            const abs = Math.abs(Number(n)) % 100;
+            const last = abs % 10;
+            if (abs > 10 && abs < 20) return many;
+            if (last === 1) return one;
+            if (last >= 2 && last <= 4) return few;
+            return many;
+        }
+        function formatPeopleCountRu(count) {
+            const n = Math.abs(Number(count)) || 0;
+            // 1 человек, 2 человека, 5 человек, 21 человек…
+            return `Ещё ${n} ${pluralRu(n, 'человек', 'человека', 'человек')}`;
+        }
+        function formatPeopleMoreBadge(count) {
+            const n = Math.abs(Number(count)) || 0;
+            return '+' + n;
+        }
+        function buildCardParticipantsTooltipHtml(names, me) {
+            if (!names || !names.length) return '';
+            const title = formatPeopleCountRu(names.length);
+            const rows = names.map((n) => {
+                const meCls = (me && n === me) ? ' card-participants-tooltip-row-me' : '';
+                const label = escapeHtml(formatCardUserLabel(n));
+                const full = escapeHtml(n);
+                return `<div class="card-participants-tooltip-row${meCls}" title="${full}">${renderUserAvatarHtml(n, 'sm')}<span class="card-participants-tooltip-name">${label}</span></div>`;
+            }).join('');
+            return `<div class="card-participants-tooltip-title">${escapeHtml(title)}</div><div class="card-participants-tooltip-list">${rows}</div>`;
+        }
+        // Все участники в DOM; сколько влезет — показываем, остальное в «+N» с tooltip.
+        function renderCardParticipants(list, me, excludeName) {
+            const skip = String(excludeName || '').trim();
+            const names = (Array.isArray(list) ? list : [])
+                .map(p => String(p == null ? '' : p).trim())
+                .filter(p => p && p !== skip);
+            if (!names.length) return '';
+            const avatars = names.map((n) => {
+                const meCls = (me && n === me) ? ' card-participant-me' : '';
+                const safe = escapeHtml(n);
+                return `<span class="card-participant-avatar${meCls}" data-participant-name="${safe}" title="${safe}">${renderUserAvatarHtml(n, 'sm')}</span>`;
+            }).join('');
+            const moreWrap = `<span class="card-participant-more-wrap is-hidden" hidden>
+                <span class="card-participant-more" tabindex="0">+0</span>
+                <span class="card-participants-tooltip" role="tooltip"></span>
+            </span>`;
+            return `<div class="card-participants">${avatars}${moreWrap}</div>`;
+        }
+
+        const CARD_PARTICIPANT_SIZE = 20;
+        const CARD_PARTICIPANT_GAP = 3;
+
+        function participantsRowWidth(itemCount) {
+            if (itemCount <= 0) return 0;
+            return itemCount * CARD_PARTICIPANT_SIZE + (itemCount - 1) * CARD_PARTICIPANT_GAP;
+        }
+
+        function measureParticipantsAvailable(footer) {
+            const author = footer.querySelector('.card-author');
+            return Math.max(48, footer.clientWidth - (author ? author.offsetWidth : 0) - 10);
+        }
+
+        function computeParticipantVisibleCount(total, available) {
+            if (total <= 0) return 0;
+            if (participantsRowWidth(total) <= available) return total;
+            // «+N» занимает место как аватар — прячем минимум двоих, иначе ширина не уменьшается.
+            for (let visible = total - 2; visible >= 1; visible--) {
+                if (participantsRowWidth(visible + 1) <= available) return visible;
+            }
+            return 1;
+        }
+
+        function layoutCardParticipants(container) {
+            if (!container) return;
+            const footer = container.closest('.card-footer');
+            if (!footer) return;
+            const avatars = Array.from(container.querySelectorAll('.card-participant-avatar'));
+            const moreWrap = container.querySelector('.card-participant-more-wrap');
+            const moreEl = container.querySelector('.card-participant-more');
+            const tooltipEl = container.querySelector('.card-participants-tooltip');
+            if (!avatars.length) {
+                if (moreWrap) moreWrap.hidden = true;
+                container.removeAttribute('data-participant-visible');
+                container.removeAttribute('data-participant-hidden');
+                return;
+            }
+
+            const available = measureParticipantsAvailable(footer);
+            const visibleCount = computeParticipantVisibleCount(avatars.length, available);
+            const hiddenCount = avatars.length - visibleCount;
+            const footerWidth = footer.clientWidth;
+            const prevVisible = container.getAttribute('data-participant-visible');
+            const prevHidden = container.getAttribute('data-participant-hidden');
+            const prevFooterWidth = container.getAttribute('data-participant-footer-w');
+            if (prevVisible === String(visibleCount) &&
+                prevHidden === String(hiddenCount) &&
+                prevFooterWidth === String(footerWidth)) {
+                return;
+            }
+            container.setAttribute('data-participant-visible', String(visibleCount));
+            container.setAttribute('data-participant-hidden', String(hiddenCount));
+            container.setAttribute('data-participant-footer-w', String(footerWidth));
+
+            avatars.forEach((a, i) => { a.hidden = i >= visibleCount; });
+            if (hiddenCount > 0 && moreWrap && moreEl) {
+                const hiddenNames = avatars.slice(visibleCount)
+                    .map(a => a.getAttribute('data-participant-name') || '')
+                    .filter(Boolean);
+                const me = typeof getCurrentUser === 'function' ? getCurrentUser() : '';
+                moreEl.textContent = formatPeopleMoreBadge(hiddenCount);
+                moreEl.title = formatPeopleCountRu(hiddenCount);
+                if (tooltipEl && !moreWrap.classList.contains('is-tooltip-open')) {
+                    tooltipEl.innerHTML = buildCardParticipantsTooltipHtml(hiddenNames, me);
+                }
+                moreWrap.hidden = false;
+                moreWrap.classList.remove('is-hidden');
+                moreWrap.setAttribute('aria-label', formatPeopleCountRu(hiddenCount));
+                bindCardParticipantMoreWrap(moreWrap);
+            } else if (moreWrap) {
+                moreWrap.hidden = true;
+                moreWrap.classList.add('is-hidden');
+                if (moreWrap.classList.contains('is-tooltip-open')) {
+                    closeCardParticipantsTooltip(moreWrap);
+                    if (activeCardParticipantsTooltipWrap === moreWrap) activeCardParticipantsTooltipWrap = null;
+                }
+            }
+        }
+
+        function layoutAllCardParticipants() {
+            document.querySelectorAll('.card-participants').forEach(layoutCardParticipants);
+        }
+
+        function updateTaskListScrollable() {
+            document.querySelectorAll('#board .task-list').forEach((list) => {
+                const needsScroll = list.scrollHeight > list.clientHeight + 1;
+                list.classList.toggle('is-scrollable', needsScroll);
+            });
+        }
+
+        function ensureTaskListWheelScroll() {
+            const board = document.getElementById('board');
+            if (!board || board._taskListWheelBound) return;
+            board._taskListWheelBound = true;
+            board.addEventListener('wheel', (e) => {
+                const list = e.target && e.target.closest ? e.target.closest('.task-list') : null;
+                if (!list || !board.contains(list) || !list.classList.contains('is-scrollable')) return;
+                const delta = e.deltaY;
+                if (!delta) return;
+                const maxScroll = list.scrollHeight - list.clientHeight;
+                if (maxScroll <= 0) return;
+                const atTop = list.scrollTop <= 0;
+                const atBottom = list.scrollTop >= maxScroll - 1;
+                if ((delta < 0 && atTop) || (delta > 0 && atBottom)) return;
+                // Keep vertical scroll inside the column; don't nudge the board sideways
+                e.preventDefault();
+                list.scrollTop += delta;
+            }, { passive: false });
+        }
+
+        let cardParticipantsLayoutObserver = null;
+        function ensureCardParticipantsLayoutObserver() {
+            const board = document.getElementById('board');
+            if (!board || cardParticipantsLayoutObserver) return;
+            let timer = null;
+            cardParticipantsLayoutObserver = new ResizeObserver(() => {
+                clearTimeout(timer);
+                timer = setTimeout(() => {
+                    layoutAllCardParticipants();
+                    updateTaskListScrollable();
+                }, 80);
+            });
+            cardParticipantsLayoutObserver.observe(board);
+        }
+
+        function getCardParticipantsTooltipEl(wrap) {
+            if (!wrap) return null;
+            if (wrap._portalTooltip && document.body.contains(wrap._portalTooltip)) return wrap._portalTooltip;
+            return wrap.querySelector('.card-participants-tooltip');
+        }
+
+        function ensureCardParticipantsTooltipContent(wrap) {
+            const tooltip = getCardParticipantsTooltipEl(wrap);
+            if (!tooltip || !wrap) return tooltip;
+            const container = wrap.closest('.card-participants');
+            if (!container) return tooltip;
+            const avatars = Array.from(container.querySelectorAll('.card-participant-avatar'));
+            const visibleCount = parseInt(container.getAttribute('data-participant-visible') || '0', 10) || 0;
+            const hiddenNames = avatars.slice(visibleCount)
+                .map(a => a.getAttribute('data-participant-name') || '')
+                .filter(Boolean);
+            if (!hiddenNames.length) return tooltip;
+            const me = typeof getCurrentUser === 'function' ? getCurrentUser() : '';
+            tooltip.innerHTML = buildCardParticipantsTooltipHtml(hiddenNames, me);
+            return tooltip;
+        }
+
+        function closeCardParticipantsTooltip(wrap) {
+            if (!wrap) return;
+            wrap.classList.remove('is-tooltip-open');
+            const tooltip = getCardParticipantsTooltipEl(wrap);
+            if (!tooltip) return;
+            tooltip.classList.remove('is-open');
+            tooltip.style.top = '';
+            tooltip.style.left = '';
+            // Return portal tooltip back into the wrap
+            if (tooltip.parentElement === document.body) {
+                wrap.appendChild(tooltip);
+            }
+            wrap._portalTooltip = null;
+        }
+
+        function closeAllCardParticipantsTooltips() {
+            document.querySelectorAll('.card-participant-more-wrap.is-tooltip-open').forEach(closeCardParticipantsTooltip);
+            document.querySelectorAll('.card-participants-tooltip.is-open').forEach((tip) => {
+                tip.classList.remove('is-open');
+                tip.style.top = '';
+                tip.style.left = '';
+            });
+        }
+
+        function positionCardParticipantsTooltip(wrap, tooltip) {
+            const more = wrap.querySelector('.card-participant-more');
+            if (!tooltip || !more || !tooltip.innerHTML.trim()) return;
+            // Measure while invisible but in flow of fixed layer
+            tooltip.style.visibility = 'hidden';
+            tooltip.style.opacity = '0';
+            tooltip.style.display = 'block';
+            const moreRect = more.getBoundingClientRect();
+            const tipW = tooltip.offsetWidth || 140;
+            const tipH = tooltip.offsetHeight || 56;
+            let top = moreRect.top - tipH - 8;
+            let left = moreRect.right - tipW;
+            if (top < 8) top = moreRect.bottom + 8;
+            left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+            top = Math.max(8, Math.min(top, window.innerHeight - tipH - 8));
+            tooltip.style.top = `${top}px`;
+            tooltip.style.left = `${left}px`;
+            tooltip.style.visibility = '';
+            tooltip.style.opacity = '';
+            tooltip.style.display = '';
+        }
+
+        let activeCardParticipantsTooltipWrap = null;
+        let cardParticipantsTooltipCloseTimer = null;
+
+        function openCardParticipantsTooltip(wrap) {
+            if (!wrap || wrap.hidden || wrap.classList.contains('is-hidden')) return;
+            clearTimeout(cardParticipantsTooltipCloseTimer);
+            if (activeCardParticipantsTooltipWrap === wrap && wrap.classList.contains('is-tooltip-open')) return;
+            closeAllCardParticipantsTooltips();
+            activeCardParticipantsTooltipWrap = wrap;
+
+            const tooltip = ensureCardParticipantsTooltipContent(wrap);
+            if (!tooltip || !tooltip.innerHTML.trim()) return;
+
+            // Portal to body — avoids clipping by column overflow / card transform
+            wrap._portalTooltip = tooltip;
+            document.body.appendChild(tooltip);
+            wrap.classList.add('is-tooltip-open');
+            positionCardParticipantsTooltip(wrap, tooltip);
+            requestAnimationFrame(() => {
+                if (activeCardParticipantsTooltipWrap === wrap) {
+                    tooltip.classList.add('is-open');
+                    positionCardParticipantsTooltip(wrap, tooltip);
+                }
+            });
+        }
+
+        function scheduleCloseCardParticipantsTooltip(wrap) {
+            clearTimeout(cardParticipantsTooltipCloseTimer);
+            cardParticipantsTooltipCloseTimer = setTimeout(() => {
+                if (activeCardParticipantsTooltipWrap !== wrap) return;
+                closeCardParticipantsTooltip(wrap);
+                activeCardParticipantsTooltipWrap = null;
+            }, 80);
+        }
+
+        function bindCardParticipantMoreWrap(wrap) {
+            if (!wrap || wrap.dataset.tooltipBound === '1') return;
+            wrap.dataset.tooltipBound = '1';
+            wrap.addEventListener('mouseenter', () => openCardParticipantsTooltip(wrap));
+            wrap.addEventListener('mouseleave', () => scheduleCloseCardParticipantsTooltip(wrap));
+            wrap.addEventListener('focusin', () => openCardParticipantsTooltip(wrap));
+            wrap.addEventListener('focusout', (e) => {
+                const related = e.relatedTarget;
+                if (related && wrap.contains(related)) return;
+                scheduleCloseCardParticipantsTooltip(wrap);
+            });
+        }
+
+        let cardParticipantsTooltipBound = false;
+        function ensureCardParticipantsTooltipHover() {
+            const board = document.getElementById('board');
+            if (!board || cardParticipantsTooltipBound) return;
+            cardParticipantsTooltipBound = true;
+            board.addEventListener('scroll', () => {
+                clearTimeout(cardParticipantsTooltipCloseTimer);
+                closeAllCardParticipantsTooltips();
+                activeCardParticipantsTooltipWrap = null;
+            }, true);
+            window.addEventListener('scroll', () => {
+                clearTimeout(cardParticipantsTooltipCloseTimer);
+                closeAllCardParticipantsTooltips();
+                activeCardParticipantsTooltipWrap = null;
+            }, true);
+            window.addEventListener('resize', () => {
+                clearTimeout(cardParticipantsTooltipCloseTimer);
+                closeAllCardParticipantsTooltips();
+                activeCardParticipantsTooltipWrap = null;
+            });
+        }
+        function syncRegistrationInputs() {
+            const a = document.getElementById('input-fio-header');
+            const b = document.getElementById('input-fio-boards');
+            if (!a || !b) return;
+            const va = (a.value || '').trim();
+            const vb = (b.value || '').trim();
+            if (vb && !va) a.value = b.value;
+            else if (va && !vb) b.value = a.value;
+        }
+        function showBoardsScreen() {
+            const boardsScreen = document.getElementById('boards-screen');
+            const boardApp = document.getElementById('board-app');
+            if (boardsScreen) boardsScreen.style.display = 'block';
+            if (boardApp) boardApp.style.display = 'none';
+            setBoardFiltersVisible(false);
+            syncRegistrationInputs();
+            applyCurrentUserDisplay();
+        }
+        function showBoardApp() {
+            const boardsScreen = document.getElementById('boards-screen');
+            const boardApp = document.getElementById('board-app');
+            if (boardsScreen) boardsScreen.style.display = 'none';
+            if (boardApp) boardApp.style.display = 'block';
+            setBoardFiltersVisible(true);
+            syncRegistrationInputs();
+            applyCurrentUserDisplay();
+        }
+        function renderBoardsList() {
+            const listEl = document.getElementById('boards-list');
+            if (!listEl) return;
+            if (!availableBoards.length) {
+                listEl.innerHTML = '<div class="boards-empty">Пока нет ни одной доски.</div>';
+                return;
+            }
+            listEl.innerHTML = availableBoards.map(board => {
+                const privateBadge = board.visibility === 'private' ? `<span class="board-tile-private-badge" title="Приватная доска">${uiIcon(ICO.lock, 'badge-icon')}</span>` : '';
+                const owner = canManageBoard(board);
+                const membersMenu = canManageBoardMembers(board)
+                    ? `<div class="menu-item" onclick="openBoardMembersModalFromTile(event, '${escapeHtml(board.id)}')">${uiIcon(ICO.members, 'menu-icon')}Участники доски</div>`
+                    : '';
+                const renameMenu = owner
+                    ? `<div class="menu-item" onclick="renameBoardFromMenu(event, this)" data-board-id="${escapeHtml(board.id)}">${uiIcon(ICO.edit, 'menu-icon')}Переименовать доску</div>`
+                    : '';
+                const deleteMenu = owner
+                    ? `<div class="menu-item delete-item" onclick="deleteBoardFromMenu(event, this)" data-board-id="${escapeHtml(board.id)}">${uiIcon(ICO.trash, 'menu-icon')}Удалить доску</div>`
+                    : '';
+                const visibilityMenu = owner && board.visibility === 'private'
+                    ? `<div class="menu-item" onclick="setBoardVisibilityFromMenu(event, '${escapeHtml(board.id)}', false)">${uiIcon(ICO.globe, 'menu-icon')}Сделать общей</div>`
+                    : (owner
+                        ? `<div class="menu-item" onclick="setBoardVisibilityFromMenu(event, '${escapeHtml(board.id)}', true)">${uiIcon(ICO.lock, 'menu-icon')}Сделать приватной</div>`
+                        : '');
+                const hasMenu = membersMenu || renameMenu || deleteMenu || visibilityMenu;
+                const menuBlock = hasMenu ? `
+                        <div class="column-menu-wrapper">
+                            <button type="button" class="btn-three-dots" onclick="toggleColumnMenu(event)" title="Меню">•••</button>
+                            <div class="column-dropdown">
+                                ${membersMenu}
+                                ${visibilityMenu}
+                                ${renameMenu}
+                                ${deleteMenu}
+                            </div>
+                        </div>` : '';
+                return `
+                <div class="board-tile" data-board-id="${escapeHtml(board.id)}">
+                    <div class="board-tile-header">
+                        <div class="board-tile-title-area">
+                            <div class="board-tile-title-text">${escapeHtml(board.name)}${privateBadge}</div>
+                            <div class="board-tile-rename-form add-col-form" style="display:none;">
+                                <input type="text" class="board-tile-rename-input" placeholder="Название..." value="${escapeHtml(board.name)}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitBoardRename(event,this.closest('.add-col-form').querySelector('.btn-save-col'));}" onclick="event.stopPropagation()">
+                                <div class="add-col-actions">
+                                    <button type="button" class="btn-save-col" onclick="submitBoardRename(event,this)">Сохранить</button>
+                                    <span class="btn-cancel-col" onclick="cancelBoardRename(event,this)">×</span>
+                                </div>
+                            </div>
+                        </div>
+                        ${menuBlock}
+                    </div>
+                    <div class="board-tile-meta">Создана: ${escapeHtml(new Date(board.createdAt || Date.now()).toLocaleString('ru-RU'))}</div>
+                </div>
+            `;
+            }).join('');
+            listEl.querySelectorAll('.board-tile').forEach(tile => {
+                tile.addEventListener('click', (e) => {
+                    if (e.target.closest('.board-tile-rename-form') && getComputedStyle(e.target.closest('.board-tile-rename-form')).display !== 'none') return;
+                    if (e.target.closest('.column-menu-wrapper')) return;
+                    const board = availableBoards.find(item => item.id === tile.dataset.boardId);
+                    if (!board) return;
+                    setCurrentBoard(board);
+                    showBoardApp();
+                    forceReload();
+                });
+            });
+        }
+        async function loadBoardsList() {
+            const res = await fetch(`${API_URL}/boards`);
+            const data = await res.json();
+            availableBoards = Array.isArray(data.boards) ? data.boards : [];
+            if (!isRenamingBoard) renderBoardsList();
+            if (currentBoardId) {
+                const current = availableBoards.find(b => b.id === currentBoardId);
+                if (current) setCurrentBoard(current);
+                else updateHeaderBoardMenu();
+            }
+            return availableBoards;
+        }
+        async function deleteBoardOnServer(boardId) {
+            const enc = encodeURIComponent(boardId);
+            const res = await fetch(`${API_URL}/boards/${enc}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Ошибка удаления');
+            await loadBoardsList();
+        }
+        async function deleteBoardFromMenu(ev, el) {
+            ev.stopPropagation();
+            ev.preventDefault();
+            document.querySelectorAll('.column-dropdown.show').forEach(menu => menu.classList.remove('show'));
+            const id = el.getAttribute('data-board-id');
+            if (!id) return;
+            const board = availableBoards.find(item => item.id === id);
+            const label = board ? board.name : id;
+            if (!confirm(`Удалить доску «${label}» и все карточки? Это необратимо.`)) return;
+            try {
+                await deleteBoardOnServer(id);
+            } catch (err) {
+                alert(err.message || 'Не удалось удалить доску');
+            }
+        }
+        async function setBoardVisibilityFromMenu(ev, boardId, makePrivate) {
+            if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+            closeAllColumnMenus();
+            const board = availableBoards.find(b => b.id === boardId);
+            if (!board || !isBoardOwner(board)) return;
+            const label = board.name || boardId;
+            if (makePrivate) {
+                if (board.visibility === 'private') return;
+                if (!confirm(`Сделать доску «${label}» приватной?\n\nУчастники с карточек будут предложены в списке доступа.`)) return;
+            } else {
+                if (board.visibility !== 'private') return;
+                if (!confirm(`Сделать доску «${label}» общей? Её смогут видеть все.`)) return;
+            }
+            try {
+                const res = await fetch(`${API_URL}/boards/${encodeURIComponent(boardId)}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ visibility: makePrivate ? 'private' : 'public' })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'Не удалось изменить видимость');
+                await loadBoardsList();
+                if (data.board && currentBoardId === boardId) {
+                    setCurrentBoard(data.board);
+                }
+                if (makePrivate && data.board && canManageBoardMembers(data.board)) {
+                    await loadAllUserList();
+                    openBoardMembersModal(boardId, { setupWizard: true, afterMakePrivate: true });
+                }
+            } catch (err) {
+                alert(err.message || 'Не удалось изменить видимость доски');
+            }
+        }
+        function closeOtherBoardRenames(exceptTile) {
+            document.querySelectorAll('.board-tile').forEach(t => {
+                if (exceptTile && t === exceptTile) return;
+                const form = t.querySelector('.board-tile-rename-form');
+                const cancel = form && form.querySelector('.btn-cancel-col');
+                if (form && form.style.display === 'flex' && cancel) cancelBoardRename(null, cancel);
+            });
+        }
+        function cancelBoardRename(e, el) {
+            if (e) { e.stopPropagation(); e.preventDefault(); }
+            const btn = el || (e && e.target);
+            const tile = btn && btn.closest ? btn.closest('.board-tile') : null;
+            if (!tile) { isRenamingBoard = false; return; }
+            const text = tile.querySelector('.board-tile-title-text');
+            const form = tile.querySelector('.board-tile-rename-form');
+            const id = tile.dataset.boardId;
+            const b = id && availableBoards.find(x => x.id === id);
+            if (form) {
+                const inp = form.querySelector('.board-tile-rename-input');
+                if (inp && b) inp.value = b.name;
+                form.style.display = 'none';
+            }
+            if (text) text.style.display = '';
+            isRenamingBoard = false;
+        }
+        async function submitBoardRename(e, btn) {
+            if (e) { e.stopPropagation(); e.preventDefault(); }
+            const tile = btn && btn.closest ? btn.closest('.board-tile') : null;
+            if (!tile) return;
+            const id = tile.dataset.boardId;
+            const input = tile.querySelector('.board-tile-rename-input');
+            const trimmed = (input && input.value) ? input.value.trim() : '';
+            if (!trimmed) return;
+            try {
+                const res = await fetch(`${API_URL}/boards/${encodeURIComponent(id)}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: trimmed })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'Не удалось переименовать');
+                isRenamingBoard = false;
+                const text = tile.querySelector('.board-tile-title-text');
+                const form = tile.querySelector('.board-tile-rename-form');
+                if (form) form.style.display = 'none';
+                if (text) text.style.display = '';
+                await loadBoardsList();
+                if (currentBoardId === id) setCurrentBoard(data.board || { id, name: trimmed });
+            } catch (err) {
+                alert(err.message || 'Не удалось переименовать доску');
+            }
+        }
+        function renameBoardFromMenu(ev, el) {
+            ev.stopPropagation();
+            ev.preventDefault();
+            document.querySelectorAll('.column-dropdown.show').forEach(menu => menu.classList.remove('show'));
+            const id = el.getAttribute('data-board-id');
+            if (!id) return;
+            const tile = el.closest('.board-tile');
+            if (!tile) return;
+            closeOtherBoardRenames(tile);
+            const board = availableBoards.find(item => item.id === id);
+            const text = tile.querySelector('.board-tile-title-text');
+            const form = tile.querySelector('.board-tile-rename-form');
+            const input = tile.querySelector('.board-tile-rename-input');
+            if (!form || !input) return;
+            if (text) text.style.display = 'none';
+            form.style.display = 'flex';
+            input.value = board ? board.name : '';
+            isRenamingBoard = true;
+            pauseUpdates();
+            setTimeout(() => { input.focus(); try { input.select(); } catch (x) {} }, 0);
+        }
+        function openCreateBoardModal() {
+            const modal = document.getElementById('createBoardModal');
+            const nameInput = document.getElementById('create-board-name-input');
+            const privateCb = document.getElementById('create-board-private-checkbox');
+            const errEl = document.getElementById('create-board-error');
+            if (nameInput) nameInput.value = '';
+            if (privateCb) privateCb.checked = false;
+            if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+            if (modal) modal.style.display = 'flex';
+            setTimeout(() => { if (nameInput) nameInput.focus(); }, 0);
+        }
+        function closeCreateBoardModal() {
+            const modal = document.getElementById('createBoardModal');
+            if (modal) modal.style.display = 'none';
+        }
+        let createBoardInFlight = false;
+        async function submitCreateBoardModal() {
+            if (createBoardInFlight) return;
+            const nameInput = document.getElementById('create-board-name-input');
+            const privateCb = document.getElementById('create-board-private-checkbox');
+            const submitBtn = document.getElementById('btn-create-board-submit');
+            const errEl = document.getElementById('create-board-error');
+            const name = (nameInput && nameInput.value) ? nameInput.value.trim() : '';
+            if (!name) {
+                if (errEl) { errEl.textContent = 'Введите название доски.'; errEl.style.display = 'block'; }
+                if (nameInput) nameInput.focus();
+                return;
+            }
+            const isPrivate = !!(privateCb && privateCb.checked);
+            if (!getCurrentUser()) {
+                if (errEl) {
+                    errEl.textContent = 'Для создания доски сначала зарегистрируйтесь (никнейм).';
+                    errEl.style.display = 'block';
+                }
+                return;
+            }
+            createBoardInFlight = true;
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Создание…'; }
+            if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+            try {
+                const res = await fetch(`${API_URL}/boards`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, isPrivate })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'Не удалось создать доску');
+                closeCreateBoardModal();
+                await loadBoardsList();
+                showBoardsScreen();
+                if (data.board && data.board.visibility === 'private' && canManageBoardMembers(data.board)) {
+                    openBoardMembersModal(data.board.id, { setupWizard: true });
+                }
+            } catch (e) {
+                if (errEl) {
+                    errEl.textContent = e.message || 'Не удалось создать доску';
+                    errEl.style.display = 'block';
+                } else {
+                    alert(e.message || 'Не удалось создать доску');
+                }
+            } finally {
+                createBoardInFlight = false;
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Создать'; }
+            }
+        }
+        async function createBoardFromPrompt() {
+            openCreateBoardModal();
+        }
+
+        let boardMembersEdit = { boardId: '', owner: '', members: [], isSetupWizard: false };
+        function getBoardMembersFilterText() {
+            const el = document.getElementById('board-members-filter');
+            return (el && el.value) ? el.value.trim().toLowerCase() : '';
+        }
+        function ensureOwnerInBoardMembers() {
+            const owner = boardMembersEdit.owner || '';
+            if (!owner) return;
+            const set = new Set(boardMembersEdit.members || []);
+            set.add(owner);
+            boardMembersEdit.members = Array.from(set);
+        }
+        function renderBoardMembersPicker() {
+            const list = document.getElementById('board-members-picker-list');
+            if (!list) return;
+            const owner = boardMembersEdit.owner || '';
+            ensureOwnerInBoardMembers();
+            const membersSet = new Set(boardMembersEdit.members || []);
+            const filter = getBoardMembersFilterText();
+            const names = (window.__allUserListNames || []).slice().sort((a, b) => a.localeCompare(b, 'ru'));
+            const filtered = filter
+                ? names.filter(n => n.toLowerCase().includes(filter))
+                : names;
+            if (!filtered.length) {
+                list.innerHTML = '<div class="board-members-picker-empty">Никого не найдено</div>';
+                return;
+            }
+            list.innerHTML = filtered.map(name => {
+                const isOwner = owner && name === owner;
+                const checked = membersSet.has(name);
+                const avatar = renderUserAvatarHtml(name, 'sm');
+                return `<label class="board-members-picker-row${isOwner ? ' board-members-picker-row-owner' : ''}">
+                    <span class="board-members-picker-user">${avatar}<span class="board-members-picker-name">${escapeHtml(name)}</span>${isOwner ? '<span class="board-members-picker-owner-tag">владелец</span>' : ''}</span>
+                    <input type="checkbox" class="board-members-picker-check" data-member-name="${escapeHtml(name)}" ${checked ? 'checked' : ''}${isOwner ? ' disabled' : ''} onchange="toggleBoardMemberCheckbox(this)">
+                </label>`;
+            }).join('');
+        }
+        function toggleBoardMemberCheckbox(el) {
+            const name = (el.dataset && el.dataset.memberName) ? el.dataset.memberName : '';
+            if (!name || (boardMembersEdit.owner && name === boardMembersEdit.owner)) return;
+            ensureOwnerInBoardMembers();
+            const set = new Set(boardMembersEdit.members || []);
+            if (el.checked) set.add(name);
+            else set.delete(name);
+            if (boardMembersEdit.owner) set.add(boardMembersEdit.owner);
+            boardMembersEdit.members = Array.from(set);
+        }
+        async function openBoardMembersModal(boardId, options = {}) {
+            const board = availableBoards.find(b => b.id === boardId);
+            if (!canManageBoardMembers(board)) return;
+            closeAllColumnMenus();
+            try {
+                await loadAllUserList();
+            } catch (e) {}
+            boardMembersEdit = {
+                boardId: board.id,
+                owner: board.owner || '',
+                members: (board.members || []).slice(),
+                isSetupWizard: !!options.setupWizard
+            };
+            ensureOwnerInBoardMembers();
+            const titleEl = document.querySelector('#boardMembersModal .modal-small-title');
+            if (titleEl) {
+                titleEl.textContent = boardMembersEdit.isSetupWizard ? 'Шаг 2: участники доски' : 'Участники доски';
+            }
+            const subtitle = document.getElementById('board-members-modal-subtitle');
+            if (subtitle) {
+                subtitle.textContent = boardMembersEdit.isSetupWizard
+                    ? (options.afterMakePrivate
+                        ? `Доска «${board.name}» теперь приватная. Отмечены участники с карточек — проверьте доступ.`
+                        : `Доска «${board.name}» создана. Отметьте, кого включить в приватную доску.`)
+                    : `Доска «${board.name}». Отметьте, кто может видеть и работать с доской.`;
+            }
+            const filterEl = document.getElementById('board-members-filter');
+            if (filterEl) filterEl.value = '';
+            renderBoardMembersPicker();
+            document.getElementById('boardMembersModal').style.display = 'flex';
+            setTimeout(() => { if (filterEl) filterEl.focus(); }, 0);
+        }
+        function openBoardMembersModalFromTile(ev, boardId) {
+            if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+            openBoardMembersModal(boardId);
+        }
+        function openBoardMembersModalFromHeader(ev) {
+            if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+            if (currentBoardId) openBoardMembersModal(currentBoardId);
+        }
+        function closeBoardMembersModal(force) {
+            if (boardMembersEdit.isSetupWizard && !force) {
+                if (!confirm('Пропустить выбор участников? Доска останется доступна только вам. Позже можно добавить участников через меню «•••».')) {
+                    return;
+                }
+            }
+            boardMembersEdit.isSetupWizard = false;
+            document.getElementById('boardMembersModal').style.display = 'none';
+        }
+        async function saveBoardMembersModal() {
+            const boardId = boardMembersEdit.boardId;
+            if (!boardId) return;
+            ensureOwnerInBoardMembers();
+            const res = await fetch(`${API_URL}/boards/${encodeURIComponent(boardId)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ members: boardMembersEdit.members || [] })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Не удалось сохранить участников');
+            closeBoardMembersModal(true);
+            await loadBoardsList();
+            await loadCardUserList(boardId).catch(() => {});
+            if (data.board && currentBoardId === boardId) setCurrentBoard(data.board);
+        }
+        (function initBoardMembersUi() {
+            const filterEl = document.getElementById('board-members-filter');
+            if (filterEl) {
+                filterEl.addEventListener('input', () => renderBoardMembersPicker());
+            }
+            const createModal = document.getElementById('createBoardModal');
+            if (createModal) {
+                createModal.addEventListener('click', (e) => { if (e.target === createModal) closeCreateBoardModal(); });
+            }
+            const membersModal = document.getElementById('boardMembersModal');
+            if (membersModal) {
+                membersModal.addEventListener('click', (e) => { if (e.target === membersModal) closeBoardMembersModal(); });
+            }
+            const createNameInput = document.getElementById('create-board-name-input');
+            if (createNameInput) {
+                createNameInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); submitCreateBoardModal().catch(err => alert(err.message || 'Ошибка')); }
+                });
+            }
+        })();
+        
+        let isDragging = false; 
+        let isCreatingColumn = false; 
+        let isRenamingColumn = false;
+        let isRenamingBoard = false;
+        let isEditingCard = false; 
+        let isModalOpen = false; 
+
+        let lastData = null;
+        let lastActionTime = 0;
+        let columnSortableInstance = null;
+        let taskSortables = [];
+
+        let quill;
+        document.addEventListener('DOMContentLoaded', () => {
+            quill = new Quill('#quill-editor', {
+                theme: 'snow',
+                modules: { toolbar: [ ['bold', 'italic', 'underline', 'strike'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['link'], ['clean'] ] },
+                placeholder: 'Добавьте описание...'
+            });
+            initPhotoDropzone();
+        });
+        function setDescHtml(html) {
+            if (!quill) return;
+            if (!html || !html.trim()) { quill.setText(''); return; }
+            const hasHtml = /<[a-z][\s\S]*>/i.test(html);
+            if (hasHtml) { quill.setText(''); quill.clipboard.dangerouslyPasteHTML(0, html); }
+            else quill.setText(html);
+        }
+        function getDescHtml() {
+            return quill ? quill.root.innerHTML : '';
+        }
+        /** Normalize Quill HTML so empty/equivalent markup doesn't look like edits */
+        function normalizeDescHtml(html) {
+            if (html == null) return '';
+            let s = String(html).trim();
+            if (!s) return '';
+            if (/^<p>(<br\s*\/?>|&nbsp;|\s)*<\/p>$/i.test(s)) return '';
+            s = s.replace(/<p><br\s*\/?><\/p>/gi, '<p></p>');
+            return s;
+        }
+        function syncOriginalDescFromEditor() {
+            currentEditCard.originalDesc = normalizeDescHtml(getDescHtml());
+        }
+
+        let appConfirmResolver = null;
+        function resolveAppConfirm(result) {
+            const modal = document.getElementById('appConfirmModal');
+            if (modal) modal.style.display = 'none';
+            const resolve = appConfirmResolver;
+            appConfirmResolver = null;
+            if (resolve) resolve(result);
+        }
+        /**
+         * Site-styled confirm. buttons: [{ id, label, className }]
+         * Resolves with button id, or 'cancel' on overlay/Esc/×.
+         */
+        function showAppConfirm({ title, message, buttons }) {
+            return new Promise((resolve) => {
+                if (appConfirmResolver) resolveAppConfirm('cancel');
+                appConfirmResolver = resolve;
+                const modal = document.getElementById('appConfirmModal');
+                const titleEl = document.getElementById('app-confirm-title');
+                const msgEl = document.getElementById('app-confirm-message');
+                const actions = document.getElementById('app-confirm-actions');
+                if (!modal || !actions) { resolve('cancel'); return; }
+                if (titleEl) titleEl.textContent = title || 'Подтверждение';
+                if (msgEl) msgEl.textContent = message || '';
+                actions.innerHTML = '';
+                (buttons || []).forEach((btn) => {
+                    const el = document.createElement('button');
+                    el.type = 'button';
+                    el.className = btn.className || 'btn-delete-edit btn-modal-cancel';
+                    el.textContent = btn.label || '';
+                    el.addEventListener('click', () => resolveAppConfirm(btn.id));
+                    actions.appendChild(el);
+                });
+                modal.style.display = 'flex';
+            });
+        }
+        function showUnsavedChangesConfirm() {
+            return showAppConfirm({
+                title: 'Несохранённые изменения',
+                message: 'Сохранить изменения перед закрытием?',
+                buttons: [
+                    { id: 'discard', label: 'Не сохранять', className: 'btn-delete-edit btn-confirm-discard' },
+                    { id: 'cancel', label: 'Отмена', className: 'btn-delete-edit btn-modal-cancel' },
+                    { id: 'save', label: 'Сохранить', className: 'btn-save-edit' }
+                ]
+            });
+        }
+        function showDeleteConfirm(message, title) {
+            return showAppConfirm({
+                title: title || 'Удаление',
+                message: message || 'Удалить?',
+                buttons: [
+                    { id: 'cancel', label: 'Отмена', className: 'btn-delete-edit btn-modal-cancel' },
+                    { id: 'delete', label: 'Удалить', className: 'btn-delete-edit' }
+                ]
+            });
+        }
+
+        function escapeHtml(s) {
+            if (s == null) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        /** Selected column keys to show. Empty = all columns. Persist per user+board. */
+        let selectedColumnKeys = [];
+        /** People filter selection. Empty = all cards. Cut by status is dropped (not restored). */
+        let preferredPeopleNames = [];
+        /** Active people filter (same as preferred after sync). Empty = all cards. OR-match. */
+        let selectedPeopleNames = [];
+        /** 'all' | 'open' | 'done' */
+        let doneFilterMode = 'all';
+        let boardFilterSkipAnim = false;
+        let boardFiltersHydrated = false;
+        const COLUMN_FILTER_ANIM_MS = 280;
+
+        function getColumnKey(colOrEl) {
+            if (!colOrEl) return '';
+            if (colOrEl.getAttribute) {
+                return (colOrEl.getAttribute('data-folder') || colOrEl.getAttribute('data-name') || '').trim();
+            }
+            return String(colOrEl.folder || colOrEl.name || '').trim();
+        }
+
+        function getColumnFilterStorageKey() {
+            const user = getCurrentUser() || 'anonymous';
+            const board = currentBoardId || 'noboard';
+            return 'sb_col_filter_v1|' + user + '|' + board;
+        }
+        function getPeopleFilterStorageKey() {
+            const user = getCurrentUser() || 'anonymous';
+            const board = currentBoardId || 'noboard';
+            return 'sb_people_filter_v1|' + user + '|' + board;
+        }
+        function getDoneFilterStorageKey() {
+            const user = getCurrentUser() || 'anonymous';
+            const board = currentBoardId || 'noboard';
+            return 'sb_done_filter_v1|' + user + '|' + board;
+        }
+
+        function loadBoardFiltersFromStorage() {
+            const me = getCurrentUser();
+            selectedColumnKeys = [];
+            preferredPeopleNames = me ? [me] : [];
+            doneFilterMode = 'all';
+            try {
+                const colRaw = localStorage.getItem(getColumnFilterStorageKey());
+                if (colRaw != null) {
+                    const parsed = JSON.parse(colRaw);
+                    if (Array.isArray(parsed)) {
+                        selectedColumnKeys = parsed.map(k => String(k || '').trim()).filter(Boolean);
+                    }
+                }
+            } catch (e) {}
+            try {
+                const peopleRaw = localStorage.getItem(getPeopleFilterStorageKey());
+                if (peopleRaw != null) {
+                    const parsed = JSON.parse(peopleRaw);
+                    if (Array.isArray(parsed)) {
+                        preferredPeopleNames = parsed.map(k => String(k || '').trim()).filter(Boolean);
+                    }
+                }
+            } catch (e) {}
+            try {
+                const doneRaw = localStorage.getItem(getDoneFilterStorageKey());
+                if (doneRaw === 'all' || doneRaw === 'open' || doneRaw === 'done') doneFilterMode = doneRaw;
+            } catch (e) {}
+            syncSelectedColumnsAgainstAvailable();
+            syncActivePeopleFromPreferred();
+            boardFiltersHydrated = true;
+        }
+
+        function saveColumnFilterToStorage() {
+            try {
+                localStorage.setItem(getColumnFilterStorageKey(), JSON.stringify(selectedColumnKeys));
+            } catch (e) {}
+        }
+
+        function savePeopleFilterToStorage() {
+            try {
+                localStorage.setItem(getPeopleFilterStorageKey(), JSON.stringify(preferredPeopleNames));
+            } catch (e) {}
+        }
+
+        /** Drop people not on cards under current status + selected columns (unchecked in filter). */
+        function syncActivePeopleFromPreferred() {
+            if (!preferredPeopleNames.length) {
+                selectedPeopleNames = [];
+                return;
+            }
+            // Before board data is ready, keep stored selection as-is
+            if (!Array.isArray(lastData)) {
+                selectedPeopleNames = preferredPeopleNames.slice();
+                return;
+            }
+            const available = new Set(collectPeopleFilterNames('view'));
+            const next = preferredPeopleNames.filter(n => available.has(n));
+            if (next.length !== preferredPeopleNames.length) {
+                preferredPeopleNames = next;
+                savePeopleFilterToStorage();
+            }
+            selectedPeopleNames = next;
+        }
+        function saveDoneFilterToStorage() {
+            try {
+                localStorage.setItem(getDoneFilterStorageKey(), doneFilterMode);
+            } catch (e) {}
+        }
+
+        function prefersReducedMotion() {
+            try {
+                return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function isColumnFilterAll() {
+            return !selectedColumnKeys.length;
+        }
+        function isPeopleFilterAll() {
+            return !selectedPeopleNames.length;
+        }
+        function isPeopleFilterMeOnly() {
+            const me = getCurrentUser();
+            return !!(me && selectedPeopleNames.length === 1 && selectedPeopleNames[0] === me);
+        }
+        function isCardFiltersIdle() {
+            return isPeopleFilterAll() && doneFilterMode === 'all';
+        }
+        function isBoardFiltersIdle() {
+            return isColumnFilterAll() && isCardFiltersIdle();
+        }
+
+        function collectColumnFilterItems() {
+            return (lastData || []).map((col) => {
+                const key = getColumnKey(col);
+                const name = String(col.name || col.folder || key || '').trim();
+                return { key, name };
+            }).filter(c => c.key);
+        }
+
+        function syncSelectedColumnsAgainstAvailable() {
+            if (!selectedColumnKeys.length) return;
+            if (!Array.isArray(lastData)) return;
+            const available = new Set(collectColumnFilterItems().map(c => c.key));
+            const next = selectedColumnKeys.filter(k => available.has(k));
+            if (next.length !== selectedColumnKeys.length) {
+                selectedColumnKeys = next;
+                saveColumnFilterToStorage();
+            }
+        }
+
+        function columnMatchesFilter(colOrEl) {
+            if (isColumnFilterAll()) return true;
+            const key = getColumnKey(colOrEl);
+            return !!(key && selectedColumnKeys.includes(key));
+        }
+
+        function isTaskDone(task) {
+            if (!task) return false;
+            return !!(task.done || localStorage.getItem(`done_${task.relPath}`) === 'true');
+        }
+
+        function findTaskByRelPath(relPath) {
+            const norm = String(relPath || '').replace(/\\/g, '/');
+            if (!norm || !lastData) return null;
+            for (const col of lastData) {
+                const t = (col.tasks || []).find(x => (x.relPath || '').replace(/\\/g, '/') === norm);
+                if (t) return t;
+            }
+            return null;
+        }
+
+        function taskMatchesPeopleFilter(task) {
+            if (isPeopleFilterAll()) return true;
+            const parts = (task.participants || []).map(p => String(p).trim()).filter(Boolean);
+            return selectedPeopleNames.some(n => parts.includes(n));
+        }
+
+        function taskMatchesDoneFilter(task) {
+            if (doneFilterMode === 'all') return true;
+            const done = isTaskDone(task);
+            return doneFilterMode === 'done' ? done : !done;
+        }
+
+        /**
+         * People present on cards for current status (+ selected columns when column filter is on).
+         * @param {'view'|'board'} scope  board = ignore column filter (rare); view = respect it
+         */
+        function collectPeopleFilterNames(scope) {
+            const set = new Set();
+            const me = getCurrentUser();
+            const limitColumns = scope !== 'board' && !isColumnFilterAll();
+            (lastData || []).forEach(col => {
+                if (limitColumns && !columnMatchesFilter(col)) return;
+                (col.tasks || []).forEach(t => {
+                    if (!taskMatchesDoneFilter(t)) return;
+                    (t.participants || []).forEach(p => {
+                        const n = String(p || '').trim();
+                        if (n) set.add(n);
+                    });
+                });
+            });
+            // Full directory only when no column filter and status = all
+            if (doneFilterMode === 'all' && !limitColumns) {
+                if (me) set.add(me);
+                getCardPickerNames().forEach(n => {
+                    const s = String(n || '').trim();
+                    if (s) set.add(s);
+                });
+            }
+            const names = Array.from(set);
+            names.sort((a, b) => {
+                if (me && a === me) return -1;
+                if (me && b === me) return 1;
+                return a.localeCompare(b, 'ru');
+            });
+            return names;
+        }
+
+        function updateColumnFilterBadge() {
+            const badge = document.getElementById('column-filter-badge');
+            const btn = document.getElementById('btn-column-filter');
+            if (!badge || !btn) return;
+            if (isColumnFilterAll()) {
+                badge.hidden = true;
+                badge.textContent = '';
+                btn.classList.remove('is-active');
+                badge.classList.remove('badge-pop');
+                return;
+            }
+            const prev = badge.textContent || '';
+            const next = String(selectedColumnKeys.length);
+            badge.hidden = false;
+            badge.textContent = next;
+            btn.classList.add('is-active');
+            if (prev !== next) {
+                badge.classList.remove('badge-pop');
+                void badge.offsetWidth;
+                badge.classList.add('badge-pop');
+            }
+        }
+
+        function updatePeopleFilterBadge() {
+            const badge = document.getElementById('people-filter-badge');
+            const btn = document.getElementById('btn-people-filter');
+            if (!badge || !btn) return;
+            const prevHidden = badge.hidden;
+            const prev = badge.textContent || '';
+            let next = '';
+            if (isPeopleFilterAll()) {
+                badge.hidden = true;
+                badge.textContent = '';
+                btn.classList.remove('is-active');
+                badge.classList.remove('badge-pop');
+                return;
+            }
+            next = isPeopleFilterMeOnly() ? 'Я' : String(selectedPeopleNames.length);
+            badge.hidden = false;
+            badge.textContent = next;
+            btn.classList.add('is-active');
+            if (!boardFilterSkipAnim && (prevHidden || prev !== next)) {
+                badge.classList.remove('badge-pop');
+                void badge.offsetWidth;
+                badge.classList.add('badge-pop');
+            }
+        }
+
+        function updateDoneFilterUi() {
+            const btn = document.getElementById('btn-done-filter');
+            const label = document.getElementById('done-filter-label');
+            if (label) {
+                label.textContent = doneFilterMode === 'done' ? 'Выполнено'
+                    : doneFilterMode === 'open' ? 'Не выполнено'
+                    : 'Статус';
+            }
+            if (btn) btn.classList.toggle('is-active', doneFilterMode !== 'all');
+            document.querySelectorAll('.done-filter-radio').forEach((r) => {
+                r.checked = r.value === doneFilterMode;
+            });
+        }
+
+        function getColumnFilterSearchQuery() {
+            const el = document.getElementById('column-filter-search');
+            return (el && el.value || '').trim().toLowerCase();
+        }
+
+        function renderColumnFilterList() {
+            const list = document.getElementById('column-filter-list');
+            const empty = document.getElementById('column-filter-empty');
+            if (!list) return;
+            const allItems = collectColumnFilterItems();
+            const q = getColumnFilterSearchQuery();
+            const items = q
+                ? allItems.filter(c => String(c.name || '').toLowerCase().includes(q) || String(c.key || '').toLowerCase().includes(q))
+                : allItems;
+            if (!allItems.length) {
+                list.innerHTML = '';
+                if (empty) {
+                    empty.style.display = 'block';
+                    empty.textContent = 'Нет колонок';
+                }
+                return;
+            }
+            if (!items.length) {
+                list.innerHTML = '';
+                if (empty) {
+                    empty.style.display = 'block';
+                    empty.textContent = 'Ничего не найдено';
+                }
+                return;
+            }
+            if (empty) empty.style.display = 'none';
+            const selected = new Set(selectedColumnKeys);
+            const allMode = isColumnFilterAll();
+            list.innerHTML = items.map((col) => {
+                const checked = allMode ? false : selected.has(col.key);
+                return `<label class="column-filter-row">
+                    <input type="checkbox" class="column-filter-check" data-column-key="${escapeHtml(col.key)}" ${checked ? 'checked' : ''}>
+                    <span class="column-filter-row-name" title="${escapeHtml(col.name)}">${escapeHtml(col.name)}</span>
+                </label>`;
+            }).join('');
+        }
+
+        function getPeopleFilterSearchQuery() {
+            const el = document.getElementById('people-filter-search');
+            return (el && el.value || '').trim().toLowerCase();
+        }
+
+        function personMatchesPeopleFilterSearch(name, q) {
+            if (!q) return true;
+            const full = String(name || '').toLowerCase();
+            const short = String(formatCardUserLabel(name) || '').toLowerCase();
+            return full.includes(q) || short.includes(q);
+        }
+
+        function renderPeopleFilterList() {
+            const list = document.getElementById('people-filter-list');
+            const empty = document.getElementById('people-filter-empty');
+            if (!list) return;
+            const allNames = collectPeopleFilterNames('view');
+            const q = getPeopleFilterSearchQuery();
+            const names = q ? allNames.filter(n => personMatchesPeopleFilterSearch(n, q)) : allNames;
+            if (!allNames.length) {
+                list.innerHTML = '';
+                if (empty) {
+                    empty.style.display = 'block';
+                    empty.textContent = 'Нет участников';
+                }
+                return;
+            }
+            if (!names.length) {
+                list.innerHTML = '';
+                if (empty) {
+                    empty.style.display = 'block';
+                    empty.textContent = 'Никого не найдено';
+                }
+                return;
+            }
+            if (empty) empty.style.display = 'none';
+            const preferred = new Set(preferredPeopleNames);
+            const me = getCurrentUser();
+            list.innerHTML = names.map(name => {
+                const checked = preferred.has(name);
+                const isMe = me && name === me;
+                const label = formatCardUserLabel(name) + (isMe ? ' (я)' : '');
+                return `<label class="column-filter-row${isMe ? ' people-filter-row-me' : ''}">
+                    <input type="checkbox" class="people-filter-check" data-person-name="${escapeHtml(name)}" ${checked ? 'checked' : ''}>
+                    <span class="column-filter-row-name" title="${escapeHtml(name)}">${escapeHtml(label)}</span>
+                </label>`;
+            }).join('');
+        }
+
+        function clearColumnFilterAnimTimers(colEl) {
+            if (colEl._colFilterAnimTimer) {
+                clearTimeout(colEl._colFilterAnimTimer);
+                colEl._colFilterAnimTimer = null;
+            }
+            if (colEl._colFilterRaf) {
+                cancelAnimationFrame(colEl._colFilterRaf);
+                colEl._colFilterRaf = null;
+            }
+            if (colEl._colFilterOnEnd) {
+                colEl.removeEventListener('transitionend', colEl._colFilterOnEnd);
+                colEl._colFilterOnEnd = null;
+            }
+        }
+
+        function finishHideColumn(colEl) {
+            colEl.classList.add('column-filter-hidden');
+            colEl.classList.remove('column-filter-leave', 'column-filter-enter', 'column-filter-enter-active');
+            if (colEl._colFilterOnEnd) {
+                colEl.removeEventListener('transitionend', colEl._colFilterOnEnd);
+                colEl._colFilterOnEnd = null;
+            }
+            colEl._colFilterAnimTimer = null;
+        }
+
+        function hideColumnWithAnim(colEl) {
+            if (colEl.classList.contains('column-filter-hidden') && !colEl.classList.contains('column-filter-leave')) {
+                return;
+            }
+            if (colEl.classList.contains('column-filter-leave')) return;
+
+            clearColumnFilterAnimTimers(colEl);
+            if (boardFilterSkipAnim || prefersReducedMotion()) {
+                finishHideColumn(colEl);
+                return;
+            }
+
+            colEl.classList.remove('column-filter-hidden');
+            colEl.classList.add('column-filter-leave');
+            colEl.classList.remove('column-filter-enter', 'column-filter-enter-active');
+            void colEl.offsetWidth;
+
+            const onEnd = (e) => {
+                if (e.target !== colEl || (e.propertyName && e.propertyName !== 'width')) return;
+                finishHideColumn(colEl);
+            };
+            colEl._colFilterOnEnd = onEnd;
+            colEl.addEventListener('transitionend', onEnd);
+            colEl._colFilterAnimTimer = setTimeout(() => {
+                if (!colEl.classList.contains('column-filter-leave')) return;
+                finishHideColumn(colEl);
+            }, COLUMN_FILTER_ANIM_MS + 60);
+        }
+
+        function showColumnWithAnim(colEl) {
+            const wasHidden =
+                colEl.classList.contains('column-filter-hidden') ||
+                colEl.classList.contains('column-filter-leave') ||
+                colEl.classList.contains('column-filter-enter');
+
+            clearColumnFilterAnimTimers(colEl);
+
+            if (!wasHidden || boardFilterSkipAnim || prefersReducedMotion()) {
+                colEl.classList.remove('column-filter-hidden', 'column-filter-leave', 'column-filter-enter', 'column-filter-enter-active');
+                return;
+            }
+
+            colEl.classList.add('column-filter-enter');
+            colEl.classList.remove('column-filter-hidden', 'column-filter-leave', 'column-filter-enter-active');
+            void colEl.offsetWidth;
+
+            colEl._colFilterRaf = requestAnimationFrame(() => {
+                colEl._colFilterRaf = requestAnimationFrame(() => {
+                    colEl._colFilterRaf = null;
+                    if (!colEl.classList.contains('column-filter-enter')) return;
+                    colEl.classList.add('column-filter-enter-active');
+                    colEl.classList.remove('column-filter-enter');
+                    colEl._colFilterAnimTimer = setTimeout(() => {
+                        colEl.classList.remove('column-filter-enter-active');
+                        colEl._colFilterAnimTimer = null;
+                    }, COLUMN_FILTER_ANIM_MS + 60);
+                });
+            });
+        }
+
+        function clearCardFilterAnimTimers(cardEl) {
+            if (cardEl._cardFilterAnimTimer) {
+                clearTimeout(cardEl._cardFilterAnimTimer);
+                cardEl._cardFilterAnimTimer = null;
+            }
+            if (cardEl._cardFilterRaf) {
+                cancelAnimationFrame(cardEl._cardFilterRaf);
+                cardEl._cardFilterRaf = null;
+            }
+            if (cardEl._cardFilterOnEnd) {
+                cardEl.removeEventListener('transitionend', cardEl._cardFilterOnEnd);
+                cardEl._cardFilterOnEnd = null;
+            }
+        }
+
+        function finishHideCard(cardEl) {
+            cardEl.classList.add('card-board-filter-hidden');
+            cardEl.classList.remove('card-filter-leave', 'card-filter-enter', 'card-filter-enter-active');
+            if (cardEl._cardFilterOnEnd) {
+                cardEl.removeEventListener('transitionend', cardEl._cardFilterOnEnd);
+                cardEl._cardFilterOnEnd = null;
+            }
+            cardEl._cardFilterAnimTimer = null;
+        }
+
+        function hideCardWithAnim(cardEl) {
+            if (cardEl.classList.contains('card-board-filter-hidden') && !cardEl.classList.contains('card-filter-leave')) {
+                return;
+            }
+            if (cardEl.classList.contains('card-filter-leave')) return;
+
+            clearCardFilterAnimTimers(cardEl);
+            if (boardFilterSkipAnim || prefersReducedMotion()) {
+                finishHideCard(cardEl);
+                return;
+            }
+
+            // Paint at full opacity first, then leave — otherwise transition is skipped
+            cardEl.classList.remove('card-board-filter-hidden', 'card-filter-enter', 'card-filter-enter-active', 'card-filter-leave');
+            void cardEl.offsetWidth;
+
+            const onEnd = (e) => {
+                if (e.target !== cardEl || (e.propertyName && e.propertyName !== 'opacity')) return;
+                finishHideCard(cardEl);
+            };
+            cardEl._cardFilterOnEnd = onEnd;
+            cardEl.addEventListener('transitionend', onEnd);
+            cardEl._cardFilterAnimTimer = setTimeout(() => {
+                if (!cardEl.classList.contains('card-filter-leave')) return;
+                finishHideCard(cardEl);
+            }, COLUMN_FILTER_ANIM_MS + 80);
+
+            cardEl._cardFilterRaf = requestAnimationFrame(() => {
+                cardEl._cardFilterRaf = null;
+                if (cardEl.classList.contains('card-board-filter-hidden')) return;
+                cardEl.classList.add('card-filter-leave');
+            });
+        }
+
+        function showCardWithAnim(cardEl) {
+            const wasHidden =
+                cardEl.classList.contains('card-board-filter-hidden') ||
+                cardEl.classList.contains('card-filter-leave') ||
+                cardEl.classList.contains('card-filter-enter');
+
+            clearCardFilterAnimTimers(cardEl);
+
+            if (!wasHidden || boardFilterSkipAnim || prefersReducedMotion()) {
+                cardEl.classList.remove('card-board-filter-hidden', 'card-filter-leave', 'card-filter-enter', 'card-filter-enter-active');
+                return;
+            }
+
+            cardEl.classList.add('card-filter-enter');
+            cardEl.classList.remove('card-board-filter-hidden', 'card-filter-leave', 'card-filter-enter-active');
+            void cardEl.offsetWidth;
+
+            cardEl._cardFilterRaf = requestAnimationFrame(() => {
+                cardEl._cardFilterRaf = requestAnimationFrame(() => {
+                    cardEl._cardFilterRaf = null;
+                    if (!cardEl.classList.contains('card-filter-enter')) return;
+                    cardEl.classList.add('card-filter-enter-active');
+                    cardEl.classList.remove('card-filter-enter');
+                    cardEl._cardFilterAnimTimer = setTimeout(() => {
+                        cardEl.classList.remove('card-filter-enter-active');
+                        cardEl._cardFilterAnimTimer = null;
+                    }, COLUMN_FILTER_ANIM_MS + 60);
+                });
+            });
+        }
+
+        function applyBoardFilters() {
+            if (!boardFiltersHydrated) loadBoardFiltersFromStorage();
+            syncSelectedColumnsAgainstAvailable();
+            syncActivePeopleFromPreferred();
+            const cardIdle = isCardFiltersIdle();
+            document.querySelectorAll('#board .column').forEach((colEl) => {
+                const colAllowed = columnMatchesFilter(colEl);
+                let visibleCards = 0;
+                // Always update cards (people/status), even in columns hidden by column filter
+                colEl.querySelectorAll('.card').forEach((cardEl) => {
+                    const raw = cardEl.getAttribute('data-rel-path') || '';
+                    const relPath = raw.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+                    const task = findTaskByRelPath(relPath);
+                    const show = colAllowed && !!(task && taskMatchesPeopleFilter(task) && taskMatchesDoneFilter(task));
+                    if (show) {
+                        showCardWithAnim(cardEl);
+                        visibleCards += 1;
+                    } else {
+                        hideCardWithAnim(cardEl);
+                    }
+                });
+                const shouldShowCol = colAllowed && (cardIdle || visibleCards > 0);
+                if (shouldShowCol) showColumnWithAnim(colEl);
+                else hideColumnWithAnim(colEl);
+            });
+            updateColumnFilterBadge();
+            updatePeopleFilterBadge();
+            updateDoneFilterUi();
+            renderPeopleFilterList();
+            renderBoardFilterChips();
+            requestAnimationFrame(updateTaskListScrollable);
+        }
+
+        function getBoardFilterChipSpecs() {
+            const specs = [];
+            if (!isColumnFilterAll()) {
+                const byKey = new Map(collectColumnFilterItems().map(c => [c.key, c.name]));
+                selectedColumnKeys.forEach((key) => {
+                    const name = byKey.get(key) || key;
+                    specs.push({
+                        key: 'column:' + key,
+                        type: 'column',
+                        name: '',
+                        columnKey: key,
+                        title: name + ' — нажмите, чтобы снять',
+                        className: 'filter-chip filter-chip-column',
+                        html:
+                            `<span class="filter-chip-kind">Колонка</span>` +
+                            `<span class="filter-chip-dot" aria-hidden="true">·</span>` +
+                            `<span class="filter-chip-value">${escapeHtml(name)}</span>`
+                    });
+                });
+            }
+            selectedPeopleNames.forEach((name) => {
+                const label = formatCardUserLabel(name);
+                specs.push({
+                    key: 'person:' + name,
+                    type: 'person',
+                    name,
+                    title: name + ' — нажмите, чтобы снять',
+                    className: 'filter-chip filter-chip-person',
+                    html:
+                        renderUserAvatarHtml(name, 'sm') +
+                        `<span class="filter-chip-kind">Участник</span>` +
+                        `<span class="filter-chip-dot" aria-hidden="true">·</span>` +
+                        `<span class="filter-chip-value">${escapeHtml(label)}</span>`
+                });
+            });
+            if (doneFilterMode === 'done' || doneFilterMode === 'open') {
+                const value = doneFilterMode === 'done' ? 'Выполнено' : 'Не выполнено';
+                const cls = doneFilterMode === 'done' ? 'filter-chip-status-done' : 'filter-chip-status-open';
+                specs.push({
+                    key: 'done:' + doneFilterMode,
+                    type: 'done',
+                    name: '',
+                    title: 'Статус: ' + value + ' — нажмите, чтобы снять',
+                    className: 'filter-chip filter-chip-status ' + cls,
+                    html:
+                        `<span class="filter-chip-kind">Статус</span>` +
+                        `<span class="filter-chip-dot" aria-hidden="true">·</span>` +
+                        `<span class="filter-chip-value">${value}</span>`
+                });
+            }
+            return specs;
+        }
+
+        function scheduleFilterChipRemove(el) {
+            if (!el || el._chipRemoveScheduled) return;
+            el._chipRemoveScheduled = true;
+            const finish = () => {
+                if (el.parentNode) el.parentNode.removeChild(el);
+            };
+            el.addEventListener('transitionend', (ev) => {
+                if (ev.target !== el) return;
+                finish();
+            }, { once: true });
+            setTimeout(finish, 320);
+        }
+
+        function renderBoardFilterChips() {
+            const row = document.getElementById('board-filter-chips');
+            if (!row) return;
+            const specs = getBoardFilterChipSpecs();
+            const desired = new Set(specs.map(s => s.key));
+            const existing = Array.from(row.querySelectorAll('.filter-chip'));
+
+            existing.forEach((el) => {
+                const key = el.getAttribute('data-filter-key') || '';
+                if (desired.has(key)) return;
+                if (!el.classList.contains('is-leaving')) {
+                    el.classList.add('is-leaving');
+                    el.setAttribute('aria-hidden', 'true');
+                    scheduleFilterChipRemove(el);
+                }
+            });
+
+            const alive = () => Array.from(row.querySelectorAll('.filter-chip:not(.is-leaving)'));
+            specs.forEach((spec, index) => {
+                let el = alive().find(c => c.getAttribute('data-filter-key') === spec.key);
+                if (!el) {
+                    el = document.createElement('button');
+                    el.type = 'button';
+                    el.className = spec.className + ' is-entering';
+                    el.setAttribute('data-filter-key', spec.key);
+                    el.setAttribute('data-filter-chip', spec.type);
+                    if (spec.name) el.setAttribute('data-person-name', spec.name);
+                    if (spec.columnKey) el.setAttribute('data-column-key', spec.columnKey);
+                    el.title = spec.title;
+                    el.setAttribute('aria-label', spec.title);
+                    el.innerHTML = spec.html;
+                    const before = alive()[index];
+                    if (before && before.parentNode === row) row.insertBefore(el, before);
+                    else row.appendChild(el);
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => el.classList.remove('is-entering'));
+                    });
+                    return;
+                }
+                el.className = spec.className;
+                el.setAttribute('data-filter-chip', spec.type);
+                if (spec.name) el.setAttribute('data-person-name', spec.name);
+                else el.removeAttribute('data-person-name');
+                if (spec.columnKey) el.setAttribute('data-column-key', spec.columnKey);
+                else el.removeAttribute('data-column-key');
+                el.title = spec.title;
+                el.setAttribute('aria-label', spec.title);
+                el.innerHTML = spec.html;
+                const nodes = alive();
+                const at = nodes[index];
+                if (at !== el) {
+                    const before = nodes[index];
+                    if (before) row.insertBefore(el, before);
+                    else row.appendChild(el);
+                }
+            });
+        }
+
+        function removeBoardFilterChip(chip) {
+            if (!chip || chip.classList.contains('is-leaving')) return;
+            const type = chip.getAttribute('data-filter-chip');
+            if (type === 'column') {
+                const key = chip.getAttribute('data-column-key') || '';
+                selectedColumnKeys = selectedColumnKeys.filter(k => k !== key);
+                saveColumnFilterToStorage();
+                renderColumnFilterList();
+                applyBoardFilters();
+                return;
+            }
+            if (type === 'person') {
+                const name = chip.getAttribute('data-person-name') || '';
+                preferredPeopleNames = preferredPeopleNames.filter(n => n !== name);
+                syncActivePeopleFromPreferred();
+                savePeopleFilterToStorage();
+                renderPeopleFilterList();
+                applyBoardFilters();
+                return;
+            }
+            if (type === 'done') {
+                setDoneFilterMode('all', true);
+            }
+        }
+
+        function setColumnFilterSelection(keys, persist) {
+            const available = collectColumnFilterItems().map(c => c.key);
+            const availSet = new Set(available);
+            let chosen = (keys || []).map(k => String(k || '').trim()).filter(k => availSet.has(k));
+            if (chosen.length && chosen.length === available.length) chosen = [];
+            selectedColumnKeys = chosen;
+            if (persist !== false) saveColumnFilterToStorage();
+            // People not in selected columns drop out of the people filter
+            syncActivePeopleFromPreferred();
+            renderColumnFilterList();
+            renderPeopleFilterList();
+            applyBoardFilters();
+        }
+
+        function clearColumnFilterSelection(persist) {
+            selectedColumnKeys = [];
+            if (persist !== false) saveColumnFilterToStorage();
+            syncActivePeopleFromPreferred();
+            renderColumnFilterList();
+            renderPeopleFilterList();
+            applyBoardFilters();
+        }
+
+        function setPeopleFilterSelection(names, persist) {
+            const available = new Set(collectPeopleFilterNames('view'));
+            const chosen = (names || []).map(k => String(k || '').trim()).filter(Boolean);
+            preferredPeopleNames = chosen.filter(n => available.has(n));
+            syncActivePeopleFromPreferred();
+            if (persist !== false) savePeopleFilterToStorage();
+            renderPeopleFilterList();
+            applyBoardFilters();
+        }
+
+        function clearPeopleFilterSelection(persist) {
+            preferredPeopleNames = [];
+            selectedPeopleNames = [];
+            if (persist !== false) savePeopleFilterToStorage();
+            renderPeopleFilterList();
+            applyBoardFilters();
+        }
+
+        function setPeopleFilterMe(persist) {
+            const me = getCurrentUser();
+            preferredPeopleNames = me ? [me] : [];
+            syncActivePeopleFromPreferred();
+            if (persist !== false) savePeopleFilterToStorage();
+            renderPeopleFilterList();
+            applyBoardFilters();
+        }
+
+        function setDoneFilterMode(mode, persist) {
+            doneFilterMode = (mode === 'done' || mode === 'open') ? mode : 'all';
+            if (persist !== false) saveDoneFilterToStorage();
+            // People cut by status are removed from selection and stay removed after status clears
+            syncActivePeopleFromPreferred();
+            renderPeopleFilterList();
+            updateDoneFilterUi();
+            applyBoardFilters();
+        }
+
+        function closeBoardFilterDropdowns() {
+            document.getElementById('column-filter-dropdown')?.classList.remove('is-open');
+            document.getElementById('people-filter-dropdown')?.classList.remove('is-open');
+            document.getElementById('done-filter-dropdown')?.classList.remove('is-open');
+            const colSearch = document.getElementById('column-filter-search');
+            if (colSearch) colSearch.value = '';
+            const peopleSearch = document.getElementById('people-filter-search');
+            if (peopleSearch) peopleSearch.value = '';
+        }
+
+        function toggleColumnFilterDropdown(forceOpen) {
+            const dd = document.getElementById('column-filter-dropdown');
+            if (!dd) return;
+            const isOpen = dd.classList.contains('is-open');
+            const open = forceOpen === true ? true : forceOpen === false ? false : !isOpen;
+            document.getElementById('people-filter-dropdown')?.classList.remove('is-open');
+            document.getElementById('done-filter-dropdown')?.classList.remove('is-open');
+            dd.classList.toggle('is-open', open);
+            const searchEl = document.getElementById('column-filter-search');
+            if (open) {
+                renderColumnFilterList();
+                if (searchEl) {
+                    searchEl.focus();
+                    searchEl.select();
+                }
+            } else if (searchEl && searchEl.value) {
+                searchEl.value = '';
+            }
+        }
+
+        function togglePeopleFilterDropdown(forceOpen) {
+            const dd = document.getElementById('people-filter-dropdown');
+            if (!dd) return;
+            const isOpen = dd.classList.contains('is-open');
+            const open = forceOpen === true ? true : forceOpen === false ? false : !isOpen;
+            document.getElementById('column-filter-dropdown')?.classList.remove('is-open');
+            document.getElementById('done-filter-dropdown')?.classList.remove('is-open');
+            dd.classList.toggle('is-open', open);
+            const searchEl = document.getElementById('people-filter-search');
+            if (open) {
+                renderPeopleFilterList();
+                if (searchEl) {
+                    searchEl.focus();
+                    searchEl.select();
+                }
+            } else if (searchEl && searchEl.value) {
+                searchEl.value = '';
+            }
+        }
+
+        function toggleDoneFilterDropdown(forceOpen) {
+            const dd = document.getElementById('done-filter-dropdown');
+            if (!dd) return;
+            const isOpen = dd.classList.contains('is-open');
+            const open = forceOpen === true ? true : forceOpen === false ? false : !isOpen;
+            document.getElementById('column-filter-dropdown')?.classList.remove('is-open');
+            document.getElementById('people-filter-dropdown')?.classList.remove('is-open');
+            dd.classList.toggle('is-open', open);
+            if (open) updateDoneFilterUi();
+        }
+
+        function setBoardFiltersVisible(visible) {
+            const wrap = document.getElementById('board-filters');
+            if (wrap) wrap.style.display = visible ? '' : 'none';
+            if (!visible) closeBoardFilterDropdowns();
+        }
+
+        let currentEditCard = { oldTitle: '', column: '', relPath: '', images: [] };
+
+        let loadBoardThrottle = null;
+        function dataSignature(data) {
+            if (!data || !data.length) return '';
+            return data.map(c => (c.folder || c.name) + ':' + (c.tasks || []).map(t =>
+            (t.relPath || '') + ':' + (t.title || '') + ':' + (t.deadline || '') + ':' + (Array.isArray(t.participants) ? t.participants.join(',') : '') + ':' + (Array.isArray(t.images) ? t.images.length : 0) + ':' + (t.done ? '1' : '0')
+            ).join(';')).join('|');
+        }
+        function showBoardError(msg) {
+            const board = document.getElementById('board');
+            if (!board) return;
+            board.innerHTML = '<div class="empty-message"><div class="board-error">' + escapeHtml(String(msg || 'Ошибка загрузки')) + '</div><button type="button" class="btn-retry-board" onclick="forceReload()">Повторить</button></div>';
+        }
+        async function loadBoard() {
+            if (!currentBoardId) return;
+            if (isDragging || isCreatingColumn || isRenamingColumn || isRenamingBoard || isEditingCard || isModalOpen) return; 
+            if (Date.now() - lastActionTime < 1500) return;
+
+            try {
+                await ensureUserLists(currentBoardId);
+                const res = await fetch(getBoardApiUrl('/board'));
+                if (!res.ok) {
+                    let errMsg = res.status + ': ' + res.statusText;
+                    const txt = await res.text().catch(() => '');
+                    try {
+                        const errData = JSON.parse(txt);
+                        if (errData && errData.error) errMsg = errData.error;
+                    } catch (e) {
+                        if (txt) errMsg = txt;
+                    }
+                    if (res.status === 403) {
+                        currentBoardId = '';
+                        currentBoardName = '';
+                        updateBoardUrl('');
+                        await loadBoardsList().catch(() => {});
+                        showBoardsScreen();
+                    }
+                    throw new Error(errMsg);
+                }
+                const raw = await res.json();
+                const data = Array.isArray(raw) ? raw : [];
+                
+                const isMenuOpen = document.querySelector('.column-dropdown.show');
+                if (isMenuOpen && dataSignature(data) !== dataSignature(lastData)) return;
+                if (lastData && dataSignature(data) === dataSignature(lastData)) return; 
+                
+                lastData = data;
+                if (loadBoardThrottle) cancelAnimationFrame(loadBoardThrottle);
+                loadBoardThrottle = requestAnimationFrame(() => { loadBoardThrottle = null; render(data); });
+            } catch(e) {
+                console.error(e);
+                showBoardError(e.message || 'Ошибка сети');
+            }
+        }
+
+        function forceReload() {
+            lastData = null; lastActionTime = 0; 
+            isEditingCard = false; isCreatingColumn = false;
+            isRenamingColumn = false; isRenamingBoard = false;
+            loadBoard();
+        }
+
+        function pauseUpdates() { lastActionTime = Date.now(); }
+
+        function getCurrentUser() {
+            return (typeof window.__currentUserName !== 'undefined' && window.__currentUserName) ? window.__currentUserName : '';
+        }
+        let columnSortModes = {};
+        function sortColumnFromBtn(el) { const c = el.dataset.sortCol; const f = el.dataset.sortFolder; const m = el.dataset.sortMode; if ((c || f) && m) sortColumn(c, f, m); }
+        function sortColumn(colName, colFolder, mode) {
+            document.querySelectorAll('.column-dropdown.show').forEach(m => m.classList.remove('show'));
+            if (!lastData) return;
+            const col = lastData.find(c => (colFolder && c.folder === colFolder) || c.name === colName);
+            if (!col || !col.tasks.length) return;
+            const key = colFolder || colName;
+            if (mode) columnSortModes[key] = mode;
+            const me = getCurrentUser();
+            let ordered = col.tasks.slice();
+            if (mode === 'alphabet') ordered.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ru'));
+            else if (mode === 'myParticipant' && me) ordered.sort((a, b) => { const ap = (a.participants || []).some(p => String(p).trim() === me); const bp = (b.participants || []).some(p => String(p).trim() === me); if (ap && !bp) return -1; if (!ap && bp) return 1; return 0; });
+            let colDiv = null;
+            document.querySelectorAll('.column').forEach(el => { if (el.getAttribute('data-folder') === (colFolder || colName)) colDiv = el; });
+            if (!colDiv) return;
+            const taskList = colDiv.querySelector('.task-list');
+            if (!taskList) return;
+            const cards = Array.from(taskList.querySelectorAll('.card'));
+            const byRelPath = {};
+            cards.forEach(c => { const r = (c.getAttribute('data-rel-path') || '').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>'); byRelPath[r] = c; });
+            ordered.forEach(t => { const r = (t.relPath || '').replace(/\\/g, '/'); const el = byRelPath[r]; if (el) taskList.appendChild(el); });
+        }
+
+        // --- ОТРИСОВКА ---
+        function renderTaskCardHtml(t, me) {
+            const currentMe = me !== undefined ? me : getCurrentUser();
+            const safeRelPath = (t.relPath || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const authorName = t.author && t.author.author ? String(t.author.author).trim() : '';
+            const authorLabel = authorName ? formatCardUserLabel(authorName) : '';
+            const authorHtml = authorName
+                ? `<div class="card-author" title="${escapeHtml(authorName)}${t.author && t.author.email ? ' · ' + escapeHtml(t.author.email) : ''}">${renderUserAvatarHtml(authorName, 'sm')}<span class="card-author-name">${escapeHtml(authorLabel)}</span></div>`
+                : '';
+            const partList = t.participants || [];
+            const iAmParticipant = currentMe && partList.some(p => String(p).trim() === currentMe);
+            const partClass = iAmParticipant ? ' card-i-am-participant' : '';
+            let imagesHtml = '';
+            if (t.images && t.images.length > 0) {
+                const imgBase = `${BASE_URL}/images/${(t.relPath || '').replace(/\\/g, '/')}`;
+                imagesHtml = t.images.map(imgName => `<img src="${imgBase}/${encodeURIComponent(imgName)}" class="card-img" loading="lazy" draggable="false" data-full="${imgBase}/${encodeURIComponent(imgName)}" data-title="${escapeHtml(t.title)}" onclick="viewImage(event, this)">`).join('');
+                imagesHtml = `<div class="card-gallery">${imagesHtml}</div>`;
+            }
+            const isDone = t.done || localStorage.getItem(`done_${t.relPath}`) === 'true';
+            const doneClass = isDone ? 'card-done' : '';
+            const checkMark = isDone ? '✅ ' : '';
+            const safeTitle = escapeHtml(t.title);
+            const previewDesc = t.desc ? escapeHtml(String(t.desc).replace(/<[^>]+>/g, '').slice(0, 120)) : '';
+            const participantsHtml = renderCardParticipants(partList, currentMe, authorName);
+            let dateClass = 'card-date';
+            if (t.deadline && !isDone) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const dl = new Date(t.deadline);
+                dl.setHours(0, 0, 0, 0);
+                const diffDays = Math.round((dl - today) / (1000 * 60 * 60 * 24));
+                if (diffDays < 0) dateClass += ' date-overdue';
+                else if (diffDays <= 1) dateClass += ' date-urgent';
+            }
+            return `<div class="card ${doneClass}${partClass}" data-rel-path="${safeRelPath}" onclick="openEditModal(this)">
+                <h4>${checkMark}${safeTitle}</h4>
+                ${imagesHtml}
+                ${previewDesc ? `<div class="card-preview-desc">${previewDesc}</div>` : ''}
+                ${t.deadline ? `<div class="${dateClass}">🕒 ${escapeHtml(t.deadline)}</div>` : ''}
+                ${(authorHtml || participantsHtml) ? `<div class="card-footer">${authorHtml}${participantsHtml}</div>` : ''}
+            </div>`;
+        }
+
+        function findColumnElByKey(colKey) {
+            const key = String(colKey || '').trim();
+            if (!key) return null;
+            return Array.from(document.querySelectorAll('#board .column')).find((el) => {
+                const folder = (el.getAttribute('data-folder') || '').trim();
+                const name = (el.getAttribute('data-name') || '').trim();
+                return folder === key || name === key;
+            }) || null;
+        }
+
+        function appendTaskToBoard(colKey, task) {
+            if (!task) return;
+            if (Array.isArray(lastData)) {
+                const colData = lastData.find(c => (c.folder || c.name) === colKey || c.name === colKey);
+                if (colData) {
+                    if (!Array.isArray(colData.tasks)) colData.tasks = [];
+                    const exists = colData.tasks.some(t => (t.relPath || '') === (task.relPath || ''));
+                    if (!exists) colData.tasks.push(task);
+                }
+            }
+            const colEl = findColumnElByKey(colKey);
+            const taskList = colEl && colEl.querySelector('.task-list');
+            if (!taskList) return false;
+            const rel = (task.relPath || '').replace(/\\/g, '/');
+            const already = Array.from(taskList.querySelectorAll('.card')).some((c) => {
+                const r = (c.getAttribute('data-rel-path') || '').replace(/&quot;/g, '"').replace(/\\/g, '/');
+                return r === rel;
+            });
+            if (already) return true;
+            const wrap = document.createElement('div');
+            wrap.innerHTML = renderTaskCardHtml(task);
+            const cardEl = wrap.firstElementChild;
+            if (!cardEl) return false;
+            taskList.appendChild(cardEl);
+            try { layoutAllCardParticipants(); } catch (e) {}
+            applyBoardFilters();
+            requestAnimationFrame(updateTaskListScrollable);
+            return true;
+        }
+
+        function render(data) {
+            if(isCreatingColumn || isRenamingColumn || isEditingCard || isModalOpen) return;
+
+            const board = document.getElementById('board');
+            const scrollLeft = board.scrollLeft;
+            
+            if (columnSortableInstance) { columnSortableInstance.destroy(); columnSortableInstance = null; }
+            // Уничтожаем Sortable колонок до сброса DOM, иначе остаются висячие слушатели/ссылки.
+            for (const s of taskSortables) { try { s.destroy(); } catch (e) {} }
+            taskSortables = [];
+
+            board.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            const me = getCurrentUser();
+
+            data.forEach(col => {
+                const colDiv = document.createElement('div');
+                colDiv.className = 'column';
+                const colFolder = col.folder || col.name;
+                const colDisplay = col.name;
+                colDiv.setAttribute('data-folder', colFolder);
+                colDiv.setAttribute('data-name', colDisplay);
+
+                const colFolderAttr = (colFolder || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const cardsHtml = col.tasks.map(t => renderTaskCardHtml(t, me)).join('');
+
+                colDiv.innerHTML = `
+                    <div class="column-header">
+                        <div class="column-header-title-wrap">
+                            <span class="column-title-text">${escapeHtml(colDisplay)}</span>
+                            <div class="column-rename-inline add-col-form" style="display:none;">
+                                <input type="text" class="column-rename-input" placeholder="Название..." value="${escapeHtml(colDisplay)}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitColumnRename(event,this.closest('.add-col-form').querySelector('.btn-save-col'));}" onclick="event.stopPropagation()">
+                                <div class="add-col-actions">
+                                    <button type="button" class="btn-save-col" onclick="submitColumnRename(event,this)">Сохранить</button>
+                                    <span class="btn-cancel-col" onclick="cancelColumnRename(event,this)">×</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column-menu-wrapper">
+                            <button class="btn-three-dots" onclick="toggleColumnMenu(event)">•••</button>
+                            <div class="column-dropdown">
+                                <div class="menu-item" data-sort-col="${escapeHtml(colDisplay)}" data-sort-folder="${escapeHtml(colFolder)}" data-sort-mode="alphabet" onclick="sortColumnFromBtn(this)">${uiIcon(ICO.sort, 'menu-icon')} По алфавиту</div>
+                                <div class="menu-item" data-sort-col="${escapeHtml(colDisplay)}" data-sort-folder="${escapeHtml(colFolder)}" data-sort-mode="myParticipant" onclick="sortColumnFromBtn(this)">${uiIcon(ICO.members, 'menu-icon')}Где я участник</div>
+                                <div class="menu-item" onclick="renameColumnFromMenu(event, this)" data-col-folder="${escapeHtml(colFolder)}" data-col-name="${escapeHtml(colDisplay)}">${uiIcon(ICO.edit, 'menu-icon')}Переименовать колонку</div>
+                                <div class="menu-item delete-item" onclick="deleteColumn(event, this)" data-col-folder="${escapeHtml(colFolder)}" data-col-name="${escapeHtml(colDisplay)}">${uiIcon(ICO.trash, 'menu-icon')}Удалить колонку</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="task-list">${cardsHtml}</div>
+                    <div class="column-footer">
+                        <div class="btn-add-card-placeholder" onclick="showCardForm(this)"><span>+ Добавить карточку</span></div>
+                        <div class="add-card-form" style="display:none;">
+                            <textarea class="add-card-input" placeholder="Введите заголовок..." onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); saveNewCard(this, '${colFolderAttr}'); }"></textarea>
+                            <div class="add-card-controls">
+                                <button class="btn-save-card" onclick="saveNewCard(this, '${colFolderAttr}')">Добавить</button>
+                                <span class="btn-cancel-card" onclick="hideCardForm(this)">×</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                fragment.appendChild(colDiv);
+                
+                taskSortables.push(new Sortable(colDiv.querySelector('.task-list'), {
+                    group: 'shared', animation: 150, ghostClass: 'sortable-ghost', dragClass: 'sortable-drag',
+                    forceFallback: true, fallbackOnBody: true, fallbackTolerance: 3,
+                    scroll: true, scrollSensitivity: 150, scrollSpeed: 20,
+                    onStart: () => { isDragging = true; },
+                    onEnd: async (evt) => {
+                        isDragging = false; pauseUpdates();
+                        if (evt.from !== evt.to || evt.oldIndex !== evt.newIndex) {
+                            const cardEl = evt.item;
+                            const relPath = (cardEl.dataset.relPath || '').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+                            const pathParts = relPath.split('/');
+                            const taskId = pathParts.length > 0 ? pathParts[pathParts.length - 1] : '';
+                            const cardTitle = cardEl.querySelector('h4').innerText.replace('✅ ', '');
+                            const oldColFolder = evt.from.parentElement.getAttribute('data-folder') || evt.from.parentElement.getAttribute('data-name');
+                            const newColFolder = evt.to.parentElement.getAttribute('data-folder') || evt.to.parentElement.getAttribute('data-name');
+                            const oldColName = evt.from.parentElement.getAttribute('data-name');
+                            const newColName = evt.to.parentElement.getAttribute('data-name');
+                            const oldKeyPart = `${oldColName}\\${cardTitle}`;
+                            const newKeyPart = `${newColName}\\${cardTitle}`;
+                            if (localStorage.getItem(`done_${oldKeyPart}`) === 'true') {
+                                localStorage.setItem(`done_${newKeyPart}`, 'true');
+                                localStorage.removeItem(`done_${oldKeyPart}`);
+                            }
+                            await moveTicket(taskId, oldColFolder, newColFolder);
+                        }
+                    }
+                }));
+            });
+
+            const addColDiv = document.createElement('div');
+            addColDiv.className = 'add-column-wrapper';
+            addColDiv.innerHTML = `
+                <div id="add-col-btn" class="add-col-btn-placeholder" onclick="showAddColUI()"><span>+ Добавить колонку</span></div>
+                <div id="add-col-form" class="add-col-form" style="display:none;">
+                    <input type="text" id="new-col-name" placeholder="Название..." onkeydown="if(event.key === 'Enter') submitNewColumn()">
+                    <div class="add-col-actions"><button class="btn-save-col" onclick="submitNewColumn()">Добавить</button><span class="btn-cancel-col" onclick="hideAddColUI()">×</span></div>
+                </div>
+            `;
+            fragment.appendChild(addColDiv);
+            board.appendChild(fragment);
+
+            columnSortableInstance = new Sortable(board, {
+                animation: 250, handle: '.column-header', draggable: '.column', ghostClass: 'sortable-ghost', dragClass: 'sortable-drag',
+                forceFallback: true, fallbackOnBody: true, direction: 'horizontal', scroll: true,
+                onStart: () => { isDragging = true; }, onEnd: () => { isDragging = false; pauseUpdates(); saveColumnOrder(); }
+            });
+            board.scrollLeft = scrollLeft;
+            data.forEach(col => { const mode = columnSortModes[col.folder || col.name]; if (mode && col.tasks && col.tasks.length) sortColumn(col.name, col.folder, mode); });
+            requestAnimationFrame(() => {
+                layoutAllCardParticipants();
+                ensureCardParticipantsLayoutObserver();
+                ensureCardParticipantsTooltipHover();
+                ensureTaskListWheelScroll();
+                loadBoardFiltersFromStorage();
+                renderColumnFilterList();
+                renderPeopleFilterList();
+                boardFilterSkipAnim = true;
+                applyBoardFilters();
+                boardFilterSkipAnim = false;
+                updateTaskListScrollable();
+            });
+        }
+
+        // --- ОКНО РЕДАКТИРОВАНИЯ ---
+        function openEditModal(cardEl) {
+            const relPath = (cardEl.dataset && cardEl.dataset.relPath) ? cardEl.dataset.relPath.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>') : '';
+            if (!relPath || !lastData) return;
+            let task = null, colFolder = '', colName = '';
+            for (const col of lastData) {
+                task = col.tasks.find(t => (t.relPath || '').replace(/\\/g, '/') === relPath.replace(/\\/g, '/'));
+                if (task) { colFolder = col.folder || col.name; colName = col.name; break; }
+            }
+            if (!task) return;
+            const title = task.title, desc = task.desc || '', date = task.deadline || '', images = task.images || [], participants = task.participants || [];
+            const authorName = (task.author && task.author.author && String(task.author.author).trim()) ? String(task.author.author).trim() : '';
+            // done UI may use localStorage fallback — baseline must match what's shown
+            const doneChecked = !!(task.done || localStorage.getItem(`done_${relPath}`) === 'true');
+            isModalOpen = true;
+            currentEditCard = { oldTitle: title, originalDesc: desc || '', originalDate: date || '', originalDone: doneChecked, originalParticipants: participants.slice(), originalImages: images.slice(), column: colFolder, columnDisplay: colName, relPath: relPath, images: images.slice(), pendingImages: [], imagesToDelete: [], participants: participants.slice(), authorName };
+
+            document.getElementById('edit-card-title').value = title;
+            document.getElementById('edit-card-column').innerText = colName;
+            document.getElementById('edit-card-date').value = date;
+            // Запрещаем выбор прошедших дат в календаре (сегодняшнюю можно)
+            const todayISO = new Date().toISOString().split('T')[0];
+            document.getElementById('edit-card-date').setAttribute('min', todayISO);
+            document.getElementById('edit-card-done').checked = doneChecked;
+            // After Quill normalizes HTML, snapshot baseline so empty/plain text aren't false "dirty"
+            setTimeout(() => {
+                setDescHtml(desc || '');
+                syncOriginalDescFromEditor();
+                requestAnimationFrame(() => {
+                    syncOriginalDescFromEditor();
+                    requestAnimationFrame(syncOriginalDescFromEditor);
+                });
+            }, 0);
+
+            renderModalParticipants();
+            toggleModalParticipantPicker(false);
+            ensureModalParticipantPickerBound();
+
+            renderModalPhotos();
+            const modal = document.getElementById('cardEditModal');
+            modal.classList.remove('is-closing');
+            modal.style.display = 'flex';
+            // Restart open animation after previous close
+            const win = modal.querySelector('.modal-card-window');
+            if (win) {
+                win.style.animation = 'none';
+                void win.offsetWidth;
+                win.style.animation = '';
+            }
+            modal.style.animation = 'none';
+            void modal.offsetWidth;
+            modal.style.animation = '';
+        }
+
+        function renderModalPhotos() {
+            const photosContainer = document.getElementById('modal-photos-list');
+            if (!photosContainer) return;
+            photosContainer.innerHTML = '';
+            const images = currentEditCard.images || [];
+            const pending = currentEditCard.pendingImages || [];
+            const relPath = currentEditCard.relPath || '';
+            const title = document.getElementById('edit-card-title') ? document.getElementById('edit-card-title').value : currentEditCard.oldTitle;
+            const imgBase = `${BASE_URL}/images/${relPath.replace(/\\/g, '/')}`;
+            if (images.length === 0 && pending.length === 0) {
+                photosContainer.innerHTML = '<span style="color:#888; font-size:13px;">Нет вложений</span>';
+            } else {
+                images.forEach(imgName => {
+                    const imgUrl = `${imgBase}/${encodeURIComponent(imgName)}`;
+                    const w = document.createElement('div');
+                    w.className = 'modal-photo-wrapper';
+                    w.innerHTML = `<img loading="lazy" src="${imgUrl}" class="modal-photo-thumb" onclick="viewImage(event, this)" data-full="${imgUrl}" data-title="${escapeHtml(title)}"><div class="btn-delete-photo-x" onclick="deleteImage(event, this)" data-img-name="${escapeHtml(imgName)}" title="Удалить фото">×</div>`;
+                    photosContainer.appendChild(w);
+                });
+                pending.forEach((item, idx) => {
+                    const w = document.createElement('div');
+                    w.className = 'modal-photo-wrapper';
+                    w.innerHTML = `<img src="${item.dataUrl}" class="modal-photo-thumb" onclick="viewImage(event, this)" data-full="${item.dataUrl}" data-title="${escapeHtml(title)}"><div class="btn-delete-photo-x" onclick="deleteImage(event, this)" data-pending-index="${idx}" title="Удалить фото">×</div>`;
+                    photosContainer.appendChild(w);
+                });
+            }
+        }
+
+        function hasUnsavedChanges() {
+            const title = (document.getElementById('edit-card-title') ? document.getElementById('edit-card-title').value : '').trim();
+            const date = document.getElementById('edit-card-date') ? document.getElementById('edit-card-date').value : '';
+            const done = !!(document.getElementById('edit-card-done') && document.getElementById('edit-card-done').checked);
+            const desc = normalizeDescHtml(getDescHtml());
+            const origTitle = String(currentEditCard.oldTitle || '').trim();
+            const origDesc = normalizeDescHtml(currentEditCard.originalDesc || '');
+            const origDate = currentEditCard.originalDate || '';
+            const origDone = !!currentEditCard.originalDone;
+            const partEq = (a, b) => a.length === b.length && a.every((p, i) => p === b[i]);
+            return (title !== origTitle) ||
+                (desc !== origDesc) ||
+                (date !== origDate) ||
+                (done !== origDone) ||
+                !partEq(currentEditCard.participants || [], currentEditCard.originalParticipants || []) ||
+                ((currentEditCard.pendingImages || []).length > 0) ||
+                ((currentEditCard.imagesToDelete || []).length > 0);
+        }
+        async function closeEditModal(forceClose) {
+            if (!forceClose && hasUnsavedChanges()) {
+                const choice = await showUnsavedChangesConfirm();
+                if (choice === 'save') {
+                    saveCardEdit();
+                    return;
+                }
+                if (choice === 'cancel') return;
+                // discard — close without saving
+            }
+            const modal = document.getElementById('cardEditModal');
+            toggleModalParticipantPicker(false);
+
+            let closed = false;
+            const finishClose = () => {
+                if (closed) return;
+                closed = true;
+                if (modal._closeAnimTimer) {
+                    clearTimeout(modal._closeAnimTimer);
+                    modal._closeAnimTimer = null;
+                }
+                if (modal._closeOnEnd) {
+                    modal.removeEventListener('animationend', modal._closeOnEnd);
+                    modal._closeOnEnd = null;
+                }
+                modal.classList.remove('is-closing');
+                modal.style.display = 'none';
+                isModalOpen = false;
+                forceReload();
+            };
+
+            if (!modal || modal.style.display === 'none') {
+                isModalOpen = false;
+                forceReload();
+                return;
+            }
+            if (modal.classList.contains('is-closing')) return;
+
+            if (prefersReducedMotion()) {
+                finishClose();
+                return;
+            }
+
+            modal.classList.add('is-closing');
+            const onEnd = (e) => {
+                if (e.target !== modal) return;
+                finishClose();
+            };
+            modal._closeOnEnd = onEnd;
+            modal.addEventListener('animationend', onEnd);
+            modal._closeAnimTimer = setTimeout(finishClose, 360);
+        }
+
+        function renderModalParticipants() {
+            const list = document.getElementById('modal-participants-list');
+            if (!list) return;
+            const authorName = currentEditCard.authorName || '';
+            list.innerHTML = (currentEditCard.participants || []).map(name => {
+                const isCreator = authorName && name === authorName;
+                const removeBtn = isCreator ? '' : ` <button type="button" class="participant-chip-remove" data-participant-name="${escapeHtml(name)}" onclick="removeParticipant(this)">×</button>`;
+                const chipClass = isCreator ? 'participant-chip participant-chip-creator' : 'participant-chip';
+                const avatar = renderUserAvatarHtml(name, 'sm');
+                const label = formatCardUserLabel(name);
+                return `<span class="${chipClass}" title="${isCreator ? 'Создатель карточки' : escapeHtml(name)}">${avatar}<span class="participant-chip-name">${escapeHtml(label)}</span>${removeBtn}</span>`;
+            }).join('') || '<span class="participants-empty">Нет участников</span>';
+        }
+        function removeParticipant(btnEl) {
+            const name = (btnEl.dataset && btnEl.dataset.participantName) ? btnEl.dataset.participantName : '';
+            if (!name || (currentEditCard.authorName && name === currentEditCard.authorName)) return;
+            currentEditCard.participants = (currentEditCard.participants || []).filter(p => p !== name);
+            renderModalParticipants();
+            renderModalParticipantPicker(currentEditCard.participants);
+        }
+
+        // --- ДОБАВЛЕНИЕ ФОТО (drag-and-drop, выбор файла) ---
+        function fileToPngBase64(file) {
+            return new Promise((resolve, reject) => {
+                if (!file.type.startsWith('image/')) { reject(new Error('Не изображение')); return; }
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    URL.revokeObjectURL(url);
+                    resolve(canvas.toDataURL('image/png'));
+                };
+                img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Не удалось загрузить изображение')); };
+                img.src = url;
+            });
+        }
+        function addPendingPhoto(base64Png) {
+            if (!currentEditCard.relPath) return;
+            currentEditCard.pendingImages = currentEditCard.pendingImages || [];
+            currentEditCard.pendingImages.push({ dataUrl: base64Png });
+            renderModalPhotos();
+        }
+        async function processPhotoFiles(files) {
+            if (!files || !files.length || !currentEditCard.relPath) return;
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i];
+                if (!f.type.startsWith('image/')) continue;
+                try {
+                    const base64 = await fileToPngBase64(f);
+                    addPendingPhoto(base64);
+                } catch (e) { alert('Ошибка: ' + (e.message || e)); }
+            }
+        }
+        function initPhotoDropzone() {
+            const dropzone = document.getElementById('modal-photo-dropzone');
+            const fileInput = document.getElementById('modal-photo-file-input');
+            const modalWindow = document.querySelector('.modal-card-window');
+            if (!dropzone || !fileInput) return;
+            dropzone.onclick = () => fileInput.click();
+            fileInput.onchange = (e) => { processPhotoFiles(e.target.files); fileInput.value = ''; };
+            const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); if (dropzone) dropzone.classList.add('drag-over'); };
+            const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); if (dropzone) dropzone.classList.remove('drag-over'); };
+            const handleDrop = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (dropzone) dropzone.classList.remove('drag-over');
+                if (currentEditCard.relPath && e.dataTransfer.files) processPhotoFiles(e.dataTransfer.files);
+            };
+            dropzone.ondragover = handleDragOver;
+            dropzone.ondragleave = handleDragLeave;
+            dropzone.ondrop = handleDrop;
+            if (modalWindow) {
+                modalWindow.ondragover = (e) => { e.preventDefault(); if (dropzone) dropzone.classList.add('drag-over'); };
+                modalWindow.ondragleave = (e) => { if (e.relatedTarget && modalWindow.contains(e.relatedTarget)) return; if (dropzone) dropzone.classList.remove('drag-over'); };
+                modalWindow.ondrop = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (dropzone) dropzone.classList.remove('drag-over');
+                    if (currentEditCard.relPath && e.dataTransfer.files) processPhotoFiles(e.dataTransfer.files);
+                };
+            }
+        }
+
+        // --- УДАЛЕНИЕ ФОТО (только из интерфейса, на сервер — при сохранении) ---
+        async function deleteImage(e, btnEl) {
+            e.stopPropagation();
+            const imgName = btnEl.dataset.imgName;
+            const pendingIdx = btnEl.dataset.pendingIndex !== undefined ? parseInt(btnEl.dataset.pendingIndex, 10) : -1;
+            if (!imgName && pendingIdx < 0) return;
+            const answer = await showDeleteConfirm('Удалить это фото?', 'Удаление фото');
+            if (answer !== 'delete') return;
+            if (pendingIdx >= 0) {
+                currentEditCard.pendingImages = currentEditCard.pendingImages || [];
+                currentEditCard.pendingImages.splice(pendingIdx, 1);
+            } else {
+                currentEditCard.images = (currentEditCard.images || []).filter(img => img !== imgName);
+                currentEditCard.imagesToDelete = currentEditCard.imagesToDelete || [];
+                currentEditCard.imagesToDelete.push(imgName);
+            }
+            renderModalPhotos();
+        }
+
+        async function saveCardEdit() {
+            const newTitle = document.getElementById('edit-card-title').value;
+            const newDate = document.getElementById('edit-card-date').value;
+            const isDone = document.getElementById('edit-card-done').checked;
+            const newDesc = getDescHtml();
+
+            // done теперь хранится на сервере — localStorage не нужен
+            localStorage.removeItem(`done_${currentEditCard.relPath}`);
+
+            pauseUpdates();
+            try {
+                // Загружаем новые фото
+                const pending = currentEditCard.pendingImages || [];
+                for (const item of pending) {
+                    const res = await fetch(`${API_URL}/update-ticket`, {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(withBoardId({ relPath: currentEditCard.relPath, image: item.dataUrl }))
+                    });
+                    if (!res.ok) throw new Error('Ошибка загрузки фото');
+                }
+                // Удаляем с сервера фото, которые пользователь убрал
+                const toDelete = currentEditCard.imagesToDelete || [];
+                for (const imgName of toDelete) {
+                    const fullPathToImg = currentEditCard.relPath + '/' + imgName;
+                    await fetch(`${API_URL}/delete`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(withBoardId({ relPath: fullPathToImg, isColumn: false })) });
+                }
+                const r1 = await fetch(`${API_URL}/update-ticket`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(withBoardId({ relPath: currentEditCard.relPath, newTitle: newTitle, newDesc: newDesc, newDate: newDate, newDone: isDone }))
+                });
+                if (!r1.ok) { const d = await r1.json().catch(() => ({})); throw new Error(d.error || 'Ошибка сохранения: ' + r1.status); }
+                const r2 = await fetch(`${API_URL}/ticket-participants`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(withBoardId({ relPath: currentEditCard.relPath, participants: currentEditCard.participants || [] }))
+                });
+                if (!r2.ok) { const d = await r2.json().catch(() => ({})); throw new Error(d.error || 'Ошибка участников: ' + r2.status); }
+
+                // Мгновенно обновляем карточку в DOM и в lastData — done и заголовок видны сразу
+                const relPathNorm = (currentEditCard.relPath || '').replace(/\\/g, '/');
+                const cardEl = Array.from(document.querySelectorAll('.card')).find(c => {
+                    const r = (c.getAttribute('data-rel-path') || '').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\\/g, '/');
+                    return r === relPathNorm;
+                });
+                if (cardEl) {
+                    cardEl.classList.toggle('card-done', isDone);
+                    const h4 = cardEl.querySelector('h4');
+                    if (h4) h4.textContent = (isDone ? '✅ ' : '') + newTitle;
+                }
+                // Обновляем lastData чтобы следующий dataSignature-check не пропустил изменение
+                if (lastData) {
+                    for (const col of lastData) {
+                        const t = col.tasks && col.tasks.find(t => (t.relPath || '') === currentEditCard.relPath);
+                        if (t) { t.done = isDone; t.title = newTitle; break; }
+                    }
+                }
+
+                closeEditModal(true);
+            } catch (e) { alert("Ошибка сохранения: " + (e.message || e)); }
+        }
+
+        async function deleteOpenedCard() {
+            const answer = await showDeleteConfirm('Точно удалить эту карточку?', 'Удаление карточки');
+            if (answer !== 'delete') return;
+            const payload = currentEditCard.relPath
+                ? { relPath: currentEditCard.relPath, isColumn: false }
+                : { column: currentEditCard.column, title: currentEditCard.oldTitle, isColumn: false };
+            try {
+                const res = await fetch(`${API_URL}/delete`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(withBoardId(payload)) });
+                if (!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    throw new Error(d.error || "Ошибка сервера: " + res.status);
+                }
+                closeEditModal(true);
+                setTimeout(forceReload, 100);
+            } catch (e) {
+                alert("Не удалось удалить: " + e.message);
+            }
+        }
+
+        async function deleteColumn(e, btnEl) { 
+            e.stopPropagation();
+            const folder = (btnEl.dataset && btnEl.dataset.colFolder) ? btnEl.dataset.colFolder : (e.target.closest('.column') && e.target.closest('.column').getAttribute('data-folder')) || '';
+            const name = (btnEl.dataset && btnEl.dataset.colName) ? btnEl.dataset.colName : (e.target.closest('.column') && e.target.closest('.column').getAttribute('data-name')) || '';
+            const n = folder || name;
+            if (!n) return;
+            const answer = await showDeleteConfirm('Удалить колонку со всеми задачами?', 'Удаление колонки');
+            if (answer !== 'delete') return;
+            closeAllColumnMenus();
+            const colEl = (btnEl && btnEl.closest) ? btnEl.closest('.column') : null;
+            const colEl2 = colEl || (e.target && e.target.closest ? e.target.closest('.column') : null);
+            if (colEl2) colEl2.remove(); 
+            pauseUpdates(); 
+            try {
+                const res = await fetch(`${API_URL}/delete`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(withBoardId({ relPath: n, isColumn: true, columnName: n })) });
+                if (!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    throw new Error(d.error || "Ошибка сервера: " + res.status);
+                }
+                setTimeout(forceReload, 100); 
+            } catch (err) {
+                alert("Не удалось удалить колонку: " + err.message);
+                forceReload();
+            }
+        }
+
+        function closeOtherColumnRenames(exceptCol) {
+            document.querySelectorAll('.column').forEach(c => {
+                if (exceptCol && c === exceptCol) return;
+                const form = c.querySelector('.column-rename-inline');
+                const cancel = form && form.querySelector('.btn-cancel-col');
+                if (form && form.style.display === 'flex' && cancel) cancelColumnRename(null, cancel);
+            });
+        }
+        function cancelColumnRename(e, el) {
+            if (e) { e.stopPropagation(); e.preventDefault(); }
+            const btn = el || (e && e.target);
+            const col = btn && btn.closest ? btn.closest('.column') : null;
+            if (!col) { isRenamingColumn = false; return; }
+            const folder = col.getAttribute('data-folder') || '';
+            const text = col.querySelector('.column-title-text');
+            const form = col.querySelector('.column-rename-inline');
+            const input = col.querySelector('.column-rename-input');
+            const curName = col.getAttribute('data-name') || folder;
+            if (form) form.style.display = 'none';
+            if (text) text.style.display = '';
+            if (input) input.value = curName;
+            isRenamingColumn = false;
+        }
+        async function submitColumnRename(e, btn) {
+            if (e) { e.stopPropagation(); e.preventDefault(); }
+            const col = btn && btn.closest ? btn.closest('.column') : null;
+            if (!col) return;
+            const folder = col.getAttribute('data-folder');
+            const input = col.querySelector('.column-rename-input');
+            const trimmed = (input && input.value) ? input.value.trim() : '';
+            if (!folder || !trimmed) return;
+            pauseUpdates();
+            try {
+                const res = await fetch(getBoardApiUrl('/column'), {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder, name: trimmed })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'Не удалось переименовать');
+                isRenamingColumn = false;
+                setTimeout(forceReload, 80);
+            } catch (err) {
+                alert(err.message || 'Не удалось переименовать колонку');
+                isRenamingColumn = false;
+                forceReload();
+            }
+        }
+        function renameColumnFromMenu(e, btnEl) {
+            e.stopPropagation();
+            e.preventDefault();
+            document.querySelectorAll('.column-dropdown.show').forEach(menu => menu.classList.remove('show'));
+            const folder = (btnEl.dataset && btnEl.dataset.colFolder) ? btnEl.dataset.colFolder : '';
+            const curName = (btnEl.dataset && btnEl.dataset.colName) ? btnEl.dataset.colName : '';
+            if (!folder) return;
+            const col = btnEl.closest('.column');
+            if (!col) return;
+            closeOtherColumnRenames(col);
+            const text = col.querySelector('.column-title-text');
+            const form = col.querySelector('.column-rename-inline');
+            const input = col.querySelector('.column-rename-input');
+            if (!form || !input) return;
+            if (text) text.style.display = 'none';
+            form.style.display = 'flex';
+            input.value = curName || folder;
+            isRenamingColumn = true;
+            pauseUpdates();
+            setTimeout(() => { input.focus(); try { input.select(); } catch (x) {} }, 0);
+        }
+
+        // --- ОБЩИЕ ФУНКЦИИ ---
+        function closeAllColumnMenus() {
+            document.querySelectorAll('.column-dropdown.show').forEach(menu => menu.classList.remove('show'));
+            document.querySelectorAll('.column.menu-open').forEach(col => col.classList.remove('menu-open'));
+            document.querySelectorAll('.column-menu-wrapper.menu-open').forEach(w => w.classList.remove('menu-open'));
+        }
+        function toggleColumnMenu(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const btn = e.currentTarget;
+            const dropdown = btn && btn.nextElementSibling;
+            if (!dropdown || !dropdown.classList.contains('column-dropdown')) return;
+            const willOpen = !dropdown.classList.contains('show');
+            closeAllColumnMenus();
+            if (willOpen) {
+                dropdown.classList.add('show');
+                const wrap = btn.closest('.column-menu-wrapper');
+                if (wrap) wrap.classList.add('menu-open');
+                const col = btn.closest('.column');
+                if (col) col.classList.add('menu-open');
+            }
+        }
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.column-menu-wrapper')) {
+                closeAllColumnMenus();
+            }
+        });
+
+        function showCardForm(p) { p.style.display='none'; p.nextElementSibling.style.display='flex'; isEditingCard=true; p.nextElementSibling.querySelector('textarea').focus(); }
+        function hideCardForm(b) {
+            const f = b.closest('.add-card-form');
+            f.style.display = 'none';
+            f.previousElementSibling.style.display = 'flex';
+            f.querySelector('textarea').value = '';
+            isEditingCard = false;
+        }
+        let isSavingCard = false; // Флаг
+        async function saveNewCard(b, col) { 
+            if (isSavingCard) return; // Блокировка
+            const f = b.closest('.add-card-form'); 
+            const textarea = f.querySelector('textarea');
+            const t = textarea.value.trim(); 
+            if(!t) return; 
+            
+            isSavingCard = true;
+            textarea.disabled = true;
+            pauseUpdates(); 
+            try { 
+                const res = await fetch(`${API_URL}/ticket`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(withBoardId({title:t, column:col, desc:"", deadline:""})) }); 
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    alert(data.error || 'Ошибка создания карточки');
+                    return;
+                }
+                const me = getCurrentUser();
+                const taskId = data.taskId || ('task_' + Date.now());
+                const title = data.title || t;
+                const relPath = String(col || '').replace(/\\/g, '/') + '/' + taskId;
+                const task = {
+                    title,
+                    relPath,
+                    desc: '',
+                    deadline: '',
+                    done: false,
+                    participants: me ? [me] : [],
+                    author: me ? { author: me, email: '' } : null,
+                    images: []
+                };
+                // Мгновенно закрываем форму и рисуем карточку без полной перерисовки доски
+                textarea.value = '';
+                f.style.display = 'none';
+                f.previousElementSibling.style.display = 'flex';
+                isEditingCard = false;
+                const ok = appendTaskToBoard(col, task);
+                pauseUpdates();
+                if (!ok) forceReload();
+            } catch(e) { 
+                alert('Ошибка сети'); 
+            } finally {
+                isSavingCard = false;
+                textarea.disabled = false;
+            }
+        }
+        function showAddColUI() { document.getElementById('add-col-btn').style.display='none'; document.getElementById('add-col-form').style.display='flex'; isCreatingColumn=true; document.getElementById('new-col-name').focus(); }
+        function hideAddColUI() { document.getElementById('add-col-btn').style.display='flex'; document.getElementById('add-col-form').style.display='none'; document.getElementById('new-col-name').value=''; isCreatingColumn=false; forceReload(); }
+        let isSavingCol = false; // Флаг
+        async function submitNewColumn() { 
+            if (isSavingCol) return; // Блокировка
+            const n = document.getElementById('new-col-name').value.trim(); 
+            if(!n) return; 
+            
+            isSavingCol = true;
+            document.getElementById('new-col-name').disabled = true; // Глушим инпут
+            pauseUpdates(); 
+            try { 
+                const res = await fetch(`${API_URL}/column`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(withBoardId({name:n})) }); 
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({error: 'Ошибка сервера'}));
+                    alert(data.error || 'Ошибка создания колонки');
+                    isCreatingColumn=false;
+                    return;
+                }
+            } catch(e) { 
+                alert('Ошибка сети'); 
+                isCreatingColumn=false;
+                return;
+            } finally {
+                isSavingCol = false;
+                document.getElementById('new-col-name').disabled = false;
+            }
+            isCreatingColumn=false; 
+            setTimeout(forceReload, 100); 
+        }
+        
+        function viewImage(e, el) { 
+            e.stopPropagation(); e.preventDefault(); 
+            document.getElementById('modalImg').src=el.dataset.full; 
+            document.getElementById('caption').innerText=el.dataset.title; 
+            document.getElementById('imageModal').style.display="block"; 
+        }
+        function closeModal() { document.getElementById('imageModal').style.display="none"; }
+        async function moveTicket(taskId, fromCol, toCol) { pauseUpdates(); await fetch(`${API_URL}/move-ticket`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(withBoardId({taskId, fromColumn:fromCol, toColumn:toCol})) }); pauseUpdates(); lastData=null; }
+        async function saveColumnOrder() { 
+            pauseUpdates(); 
+            const cols = Array.from(document.querySelectorAll('.column'))
+                .filter(c=>!c.classList.contains('add-column-wrapper'))
+                .map(c => ({folder: c.dataset.folder || c.dataset.name, name: c.dataset.name})); 
+            await fetch(`${API_URL}/reorder-columns`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(withBoardId({order:cols})) }); 
+            pauseUpdates();
+            lastData=null; 
+        }
+
+        document.addEventListener('keydown', (e) => { 
+            if (e.key==="Escape") {
+                if (document.getElementById('appConfirmModal')?.style.display === 'flex') { resolveAppConfirm('cancel'); return; }
+                if (document.getElementById('createBoardModal')?.style.display === 'flex') { closeCreateBoardModal(); return; }
+                if (document.getElementById('boardMembersModal')?.style.display === 'flex') { closeBoardMembersModal(); return; }
+                if (isModalOpen) closeEditModal();
+                closeModal();
+                if (isCreatingColumn) hideAddColUI();
+                if (isRenamingBoard) {
+                    document.querySelectorAll('.board-tile-rename-form').forEach(f => {
+                        if (f.style.display === 'flex') cancelBoardRename(null, f.querySelector('.btn-cancel-col'));
+                    });
+                }
+                if (isRenamingColumn) {
+                    document.querySelectorAll('.column-rename-inline').forEach(f => {
+                        if (f.style.display === 'flex') cancelColumnRename(null, f.querySelector('.btn-cancel-col'));
+                    });
+                }
+                document.querySelectorAll('.add-card-form').forEach(f => { if (f.style.display !== 'none') hideCardForm(f.querySelector('.btn-cancel-card')); });
+            }
+        });
+
+        // WebSocket — автообновление с дедупликацией, heartbeat и экспоненциальным переподключением
+        let ws; let wsRefreshTimer = null;
+        let wsReconnectDelay = 3000;
+        let wsHeartbeatTimer = null;
+
+        function wsResetHeartbeat() {
+            clearTimeout(wsHeartbeatTimer);
+            // Если 45 секунд нет активности — считаем соединение мёртвым, переподключаемся
+            wsHeartbeatTimer = setTimeout(() => { try { ws && ws.close(); } catch (e) {} }, 45000);
+        }
+
+        function connectWs() {
+            try {
+                ws = new WebSocket(WS_URL);
+                ws.onopen = () => { wsReconnectDelay = 3000; wsResetHeartbeat(); };
+                ws.onmessage = (e) => {
+                    wsResetHeartbeat();
+                    try {
+                        const d = JSON.parse(e.data);
+                        if (d.type === 'ping') { ws.send(JSON.stringify({ type: 'pong' })); return; }
+                        if (d.type !== 'refresh') return;
+                        if (d.boardsListChanged && !isRenamingBoard) {
+                            loadBoardsList().then(() => {
+                                const b = availableBoards.find(x => x.id === currentBoardId);
+                                if (b) setCurrentBoard(b);
+                            });
+                        }
+                        if (d.boardDeleted && d.boardId) {
+                            isRenamingBoard = false;
+                            if (d.boardId === currentBoardId) {
+                                currentBoardId = '';
+                                currentBoardName = '';
+                                updateBoardUrl('');
+                                const titleEl = document.getElementById('board-title');
+                                if (titleEl) titleEl.textContent = 'SmartBoard';
+                                lastData = null;
+                                lastActionTime = 0;
+                                loadBoardsList().then(() => showBoardsScreen());
+                            } else {
+                                loadBoardsList();
+                            }
+                            return;
+                        }
+                        if (d.boardId && currentBoardId && d.boardId !== currentBoardId) return;
+                        // Дебаунс: серия refresh подряд приводит к одному перерендеру.
+                        if (wsRefreshTimer) clearTimeout(wsRefreshTimer);
+                        const doRefresh = () => {
+                            wsRefreshTimer = null;
+                            // Не сбиваем локальный pause (создание карточки и т.п.) полной перерисовкой
+                            const wait = 1500 - (Date.now() - lastActionTime);
+                            if (wait > 0) {
+                                wsRefreshTimer = setTimeout(doRefresh, wait + 40);
+                                return;
+                            }
+                            lastData = null;
+                            lastActionTime = 0;
+                            loadBoard();
+                        };
+                        wsRefreshTimer = setTimeout(doRefresh, 200);
+                    } catch (err) {}
+                };
+                ws.onclose = () => {
+                    clearTimeout(wsHeartbeatTimer);
+                    setTimeout(connectWs, wsReconnectDelay);
+                    wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
+                };
+                ws.onerror = () => {};
+            } catch (err) {}
+        }
+        connectWs();
+        // Резервный поллинг только когда WS недоступен (иначе обновления и так приходят по сокету).
+        setInterval(() => { if (!ws || ws.readyState !== 1) loadBoard(); }, 120000);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                lastData = null;
+                loadBoard();
+            }
+        });
+        document.getElementById('btn-board-switch').addEventListener('click', async () => {
+            await loadBoardsList().catch(() => {});
+            showBoardsScreen();
+        });
+        document.getElementById('btn-create-board').addEventListener('click', async () => {
+            try {
+                await createBoardFromPrompt();
+            } catch (e) {
+                alert(e.message || 'Ошибка создания доски');
+            }
+        });
+
+        function applyCurrentUserDisplay() {
+            const name = window.__currentUserName || '';
+            const registeredView = document.getElementById('user-registered-view');
+            const registrationView = document.getElementById('user-registration-view');
+            const boardOverlay = document.getElementById('board-overlay');
+            const headerAvatarWrap = document.getElementById('header-user-avatar-wrap');
+            const boardsScreen = document.getElementById('boards-screen');
+            const boardApp = document.getElementById('board-app');
+            const boardsRegFs = document.getElementById('boards-reg-fullscreen');
+            const boardsMainInner = document.getElementById('boards-screen-main-inner');
+            const boardsRegLine = document.getElementById('boards-registered-line');
+            const boardsBadgeWrap = document.getElementById('boards-user-badge-wrap');
+            const onBoardsList = boardsScreen && boardsScreen.style.display !== 'none';
+            const inBoardApp = boardApp && boardApp.style.display !== 'none';
+
+            if (name) {
+                if (headerAvatarWrap) headerAvatarWrap.innerHTML = renderUserAvatarWithNameHtml(name, 'md');
+                if (boardsBadgeWrap) boardsBadgeWrap.innerHTML = renderUserAvatarWithNameHtml(name, 'md');
+                if (registeredView) registeredView.style.display = 'block';
+                if (registrationView) registrationView.style.display = 'none';
+                if (boardOverlay) boardOverlay.style.display = 'none';
+                if (boardsRegFs) boardsRegFs.style.display = 'none';
+                if (boardsMainInner) {
+                    boardsMainInner.style.visibility = '';
+                    boardsMainInner.style.pointerEvents = '';
+                }
+                if (boardsRegLine) boardsRegLine.style.display = onBoardsList ? 'inline-flex' : 'none';
+                if (lastData) render(lastData);
+            } else {
+                if (registeredView) registeredView.style.display = 'none';
+                if (boardsRegLine) boardsRegLine.style.display = 'none';
+                const visibleContext = onBoardsList || inBoardApp;
+                if (onBoardsList) {
+                    if (boardsRegFs) boardsRegFs.style.display = 'flex';
+                    if (boardsMainInner) {
+                        boardsMainInner.style.visibility = 'hidden';
+                        boardsMainInner.style.pointerEvents = 'none';
+                    }
+                    if (boardOverlay) boardOverlay.style.display = 'none';
+                    if (registrationView) registrationView.style.display = 'none';
+                } else {
+                    if (boardsRegFs) boardsRegFs.style.display = 'none';
+                    if (boardsMainInner) {
+                        boardsMainInner.style.visibility = '';
+                        boardsMainInner.style.pointerEvents = '';
+                    }
+                    if (boardOverlay) boardOverlay.style.display = inBoardApp ? 'flex' : 'none';
+                    if (registrationView) registrationView.style.display = inBoardApp ? 'flex' : 'none';
+                }
+                if (!visibleContext) {
+                    if (boardOverlay) boardOverlay.style.display = 'none';
+                    if (boardsRegFs) boardsRegFs.style.display = 'none';
+                    if (boardsMainInner) {
+                        boardsMainInner.style.visibility = '';
+                        boardsMainInner.style.pointerEvents = '';
+                    }
+                }
+            }
+        }
+        
+        function validateNickname(v) {
+            const t = (v || '').trim();
+            if (t.length < 2) return 'Никнейм должен быть не короче 2 символов.';
+            if (t.length > 32) return 'Никнейм не длиннее 32 символов.';
+            if (!/^[\p{L}\p{N}_.\- ]+$/u.test(t)) return 'Никнейм: буквы, цифры, пробел, _ . -';
+            return null;
+        }
+        
+        function getRegistrationInputEl() {
+            const boardApp = document.getElementById('board-app');
+            const boardsScreen = document.getElementById('boards-screen');
+            const boardsInp = document.getElementById('input-fio-boards');
+            const headerInp = document.getElementById('input-fio-header');
+            const onBoardsList = boardsScreen && boardsScreen.style.display !== 'none';
+            const inBoardApp = boardApp && boardApp.style.display !== 'none';
+            if (onBoardsList && boardsInp) return boardsInp;
+            if (inBoardApp && headerInp) return headerInp;
+            return boardsInp || headerInp;
+        }
+        async function registerUser() {
+            const inputEl = getRegistrationInputEl();
+            if (!inputEl) return;
+            const v = (inputEl.value || '').trim();
+            const err = validateNickname(v);
+            if (err) { alert(err); inputEl.focus(); return; }
+            try {
+                const r = await fetch(`${API_URL}/register-user`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: v }) });
+                if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || 'Ошибка регистрации'); return; }
+            } catch (e) { alert('Ошибка сети'); return; }
+            window.__currentUserName = v;
+            const hi = document.getElementById('input-fio-header');
+            const bi = document.getElementById('input-fio-boards');
+            if (hi) hi.value = v;
+            if (bi) bi.value = v;
+            boardFiltersHydrated = false;
+            loadBoardFiltersFromStorage();
+            updatePeopleFilterBadge();
+            updateDoneFilterUi();
+            applyBoardFilters();
+            applyCurrentUserDisplay();
+            if (currentBoardId) loadBoard();
+        }
+        
+        document.getElementById('btn-fio-header').addEventListener('click', registerUser);
+        document.getElementById('input-fio-header').addEventListener('keydown', (e) => { if (e.key === 'Enter') registerUser(); });
+        document.getElementById('btn-fio-boards').addEventListener('click', registerUser);
+        document.getElementById('input-fio-boards').addEventListener('keydown', (e) => { if (e.key === 'Enter') registerUser(); });
+        
+        // Клик на overlay - фокус на поле ввода
+        const boardOverlay = document.getElementById('board-overlay');
+        const boardsRegFsDimRest = document.querySelector('.boards-reg-fs-dim-rest');
+        function focusRegistrationInput() {
+            const inputEl = getRegistrationInputEl();
+            if (inputEl) inputEl.focus();
+        }
+        if (boardOverlay) boardOverlay.addEventListener('click', focusRegistrationInput);
+        if (boardsRegFsDimRest) boardsRegFsDimRest.addEventListener('click', focusRegistrationInput);
+
+        async function initUserData() {
+            const [meData] = await Promise.all([
+                fetch(`${API_URL}/me`).then(r => r.json()).catch(() => ({})),
+                loadAllUserList()
+            ]);
+            window.__currentUserName = (meData.name && meData.name.trim()) ? meData.name.trim() : '';
+            if (currentBoardId) await loadCardUserList(currentBoardId).catch(() => {});
+            applyCurrentUserDisplay();
+        }
+        async function initBoards() {
+            try {
+                const boards = await loadBoardsList();
+                const requestedId = new URLSearchParams(window.location.search).get('board') || '';
+                const targetBoard = requestedId ? (boards.find(board => board.id === requestedId) || null) : null;
+                if (requestedId && !targetBoard) {
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('board');
+                    history.replaceState({}, '', url.toString());
+                }
+                if (targetBoard) {
+                    setCurrentBoard(targetBoard);
+                    showBoardApp();
+                    forceReload();
+                } else {
+                    showBoardsScreen();
+                }
+            } catch (e) {
+                showBoardError(e.message || 'Не удалось загрузить список досок');
+                showBoardApp();
+            }
+        }
+        (function initBoardFilterUi() {
+            const columnWrap = document.getElementById('column-filter-wrap');
+            const peopleWrap = document.getElementById('people-filter-wrap');
+            const doneWrap = document.getElementById('done-filter-wrap');
+            const chipsRow = document.getElementById('board-filter-chips');
+            const columnBtn = document.getElementById('btn-column-filter');
+            const peopleBtn = document.getElementById('btn-people-filter');
+            const doneBtn = document.getElementById('btn-done-filter');
+            const columnList = document.getElementById('column-filter-list');
+            const columnSearch = document.getElementById('column-filter-search');
+            const btnColAll = document.getElementById('column-filter-all');
+            const peopleList = document.getElementById('people-filter-list');
+            const peopleSearch = document.getElementById('people-filter-search');
+            const btnMe = document.getElementById('people-filter-me');
+            const btnAll = document.getElementById('people-filter-all');
+            const doneDd = document.getElementById('done-filter-dropdown');
+
+            if (columnBtn) {
+                columnBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    closeAllColumnMenus();
+                    toggleColumnFilterDropdown();
+                });
+            }
+            if (peopleBtn) {
+                peopleBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    closeAllColumnMenus();
+                    togglePeopleFilterDropdown();
+                });
+            }
+            if (doneBtn) {
+                doneBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    closeAllColumnMenus();
+                    toggleDoneFilterDropdown();
+                });
+            }
+            if (columnSearch) {
+                columnSearch.addEventListener('input', () => renderColumnFilterList());
+                columnSearch.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        e.stopPropagation();
+                        if (columnSearch.value) {
+                            columnSearch.value = '';
+                            renderColumnFilterList();
+                        } else {
+                            toggleColumnFilterDropdown(false);
+                        }
+                    }
+                });
+            }
+            if (columnList) {
+                columnList.addEventListener('change', (e) => {
+                    const t = e.target;
+                    if (!t || !t.classList.contains('column-filter-check')) return;
+                    const checks = Array.from(columnList.querySelectorAll('.column-filter-check'));
+                    const visibleKeys = new Set(checks.map(c => c.getAttribute('data-column-key') || '').filter(Boolean));
+                    const checkedVisible = checks.filter(c => c.checked).map(c => c.getAttribute('data-column-key') || '').filter(Boolean);
+                    const kept = selectedColumnKeys.filter(k => !visibleKeys.has(k));
+                    setColumnFilterSelection(kept.concat(checkedVisible), true);
+                });
+            }
+            if (btnColAll) {
+                btnColAll.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    clearColumnFilterSelection(true);
+                });
+            }
+            if (peopleSearch) {
+                peopleSearch.addEventListener('input', () => renderPeopleFilterList());
+                peopleSearch.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        e.stopPropagation();
+                        if (peopleSearch.value) {
+                            peopleSearch.value = '';
+                            renderPeopleFilterList();
+                        } else {
+                            togglePeopleFilterDropdown(false);
+                        }
+                    }
+                });
+            }
+            if (peopleList) {
+                peopleList.addEventListener('change', (e) => {
+                    const t = e.target;
+                    if (!t || !t.classList.contains('people-filter-check')) return;
+                    const checks = Array.from(peopleList.querySelectorAll('.people-filter-check'));
+                    const visibleNames = new Set(checks.map(c => c.getAttribute('data-person-name') || '').filter(Boolean));
+                    const checkedVisible = checks.filter(c => c.checked).map(c => c.getAttribute('data-person-name') || '').filter(Boolean);
+                    // Keep selections hidden by search query
+                    const kept = preferredPeopleNames.filter(n => !visibleNames.has(n));
+                    setPeopleFilterSelection(kept.concat(checkedVisible), true);
+                });
+            }
+            if (btnMe) {
+                btnMe.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    setPeopleFilterMe(true);
+                });
+            }
+            if (btnAll) {
+                btnAll.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    clearPeopleFilterSelection(true);
+                });
+            }
+            if (doneDd) {
+                doneDd.addEventListener('change', (e) => {
+                    const t = e.target;
+                    if (!t || !t.classList.contains('done-filter-radio')) return;
+                    setDoneFilterMode(t.value, true);
+                    toggleDoneFilterDropdown(false);
+                });
+            }
+            if (chipsRow) {
+                chipsRow.addEventListener('click', (e) => {
+                    const chip = e.target && e.target.closest ? e.target.closest('.filter-chip') : null;
+                    if (!chip || !chipsRow.contains(chip) || chip.classList.contains('is-leaving')) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeBoardFilterChip(chip);
+                });
+            }
+            document.addEventListener('click', (e) => {
+                const inCol = columnWrap && columnWrap.contains(e.target);
+                const inPeople = peopleWrap && peopleWrap.contains(e.target);
+                const inDone = doneWrap && doneWrap.contains(e.target);
+                if (!inCol && !inPeople && !inDone) closeBoardFilterDropdowns();
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeBoardFilterDropdowns();
+            });
+            setBoardFiltersVisible(false);
+        })();
+
+        (async function boot() {
+            await initUserData();
+            await initBoards();
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "smartboard",
+  "version": "1.0.0",
+  "description": "SmartBoard — доска задач с никнеймами",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "http-proxy": "^1.18.1",
+    "iconv-lite": "^0.7.2",
+    "ss": "^0.0.1",
+    "ws": "^8.18.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}

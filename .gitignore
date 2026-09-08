@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.local
+data/
+*.log
+.serena/
+.vscode/
+.DS_Store
+Thumbs.db
+.cursorrules
+code.txt
