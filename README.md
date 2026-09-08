@@ -7,8 +7,8 @@
 Нужен [Node.js](https://nodejs.org/) 18 или новее.
 
 ```bash
-git clone <ссылка-на-репозиторий>
-cd SmartBoard-nick
+git clone https://github.com/Wolframi/smartboard-nick.git
+cd smartboard-nick
 npm install
 npm start
 ```
